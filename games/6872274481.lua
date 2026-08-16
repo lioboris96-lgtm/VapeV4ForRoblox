@@ -3603,6 +3603,7 @@ run(function()
 	local Targets
 	local FOV
 	local OtherProjectiles
+	local IgnoreProjectiles
 	local rayCheck = RaycastParams.new()
 	rayCheck.FilterType = Enum.RaycastFilterType.Include
 	rayCheck.FilterDescendantsInstances = {workspace:FindFirstChild('Map')}
@@ -3615,6 +3616,11 @@ run(function()
 				old = bedwars.ProjectileController.calculateImportantLaunchValues
 				bedwars.ProjectileController.calculateImportantLaunchValues = function(...)
 					local self, projmeta, worldmeta, origin, shootpos = ...
+
+					if table.find(IgnoreProjectiles.ListEnabled, projmeta.projectile) then
+						return old(...)
+					end
+
 					local plr = entitylib.EntityMouse({
 						Part = 'RootPart',
 						Range = FOV.Value,
@@ -3697,6 +3703,10 @@ run(function()
 	OtherProjectiles = ProjectileAimbot:CreateToggle({
 		Name = 'Other Projectiles',
 		Default = true
+	})
+	IgnoreProjectiles = ProjectileAimbot:CreateTextList({
+		Name = 'Ignore Projectiles',
+		Tooltip = 'ProjectileAimbot will not work with these projectiles'
 	})
 end)
 	
