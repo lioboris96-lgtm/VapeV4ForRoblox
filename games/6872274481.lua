@@ -3716,6 +3716,7 @@ run(function()
 	local Targets
 	local Range
 	local List
+	local ToolCheck
 	local rayCheck = RaycastParams.new()
 	rayCheck.FilterType = Enum.RaycastFilterType.Include
 	local projectileRemote = {InvokeServer = function() end}
@@ -3767,6 +3768,9 @@ run(function()
 							local pos = entitylib.character.RootPart.Position
 							for _, data in getProjectiles() do
 								local item, ammo, projectile, itemMeta = unpack(data)
+								if ToolCheck.Enabled and item.tool ~= store.hand.tool then
+									continue
+								end
 								if (FireDelays[item.itemType] or 0) < tick() then
 									rayCheck.FilterDescendantsInstances = {workspace.Map}
 									local meta = bedwars.ProjectileMeta[projectile]
@@ -3823,6 +3827,11 @@ run(function()
 		Suffix = function(val)
 			return val == 1 and 'stud' or 'studs'
 		end
+	})
+	ToolCheck = ProjectileAura:CreateToggle({
+		Name = 'Tool Check',
+		Default = true,
+		Tooltip = 'Only shoots projectiles when you are holding the tool'
 	})
 end)
 	
