@@ -3645,20 +3645,21 @@ run(function()
 						local gravity = (meta.gravitationalAcceleration or 196.2) * projmeta.gravityMultiplier
 						local projSpeed = (meta.launchVelocity or 100)
 						local offsetpos = pos + (projmeta.projectile == 'owl_projectile' and Vector3.zero or projmeta.fromPositionOffset)
-						local balloons = plr.Character:GetAttribute('InflatedBalloons')
+						local char = plr.Character
+						local balloons = char and char:GetAttribute('InflatedBalloons')
 						local playerGravity = workspace.Gravity
-	
+
 						if balloons and balloons > 0 then
 							playerGravity = (workspace.Gravity * (1 - ((balloons >= 4 and 1.2 or balloons >= 3 and 1 or 0.975))))
 						end
-	
-						if plr.Character.PrimaryPart:FindFirstChild('rbxassetid://8200754399') then
+
+						if char and char.PrimaryPart and char.PrimaryPart:FindFirstChild('rbxassetid://8200754399') then
 							playerGravity = 6
 						end
-	
-						if plr.Player:GetAttribute('IsOwlTarget') then
+
+						if plr.Player and plr.Player:GetAttribute('IsOwlTarget') then
 							for _, owl in collectionService:GetTagged('Owl') do
-								if owl:GetAttribute('Target') == plr.Player.UserId and owl:GetAttribute('Status') == 2 then
+								if owl and owl:GetAttribute('Target') == plr.Player.UserId and owl:GetAttribute('Status') == 2 then
 									playerGravity = 0
 								end
 							end
