@@ -5610,11 +5610,15 @@ run(function()
 	local Expand
 	local Tower
 	local Velocity
+	local UpVelocity
+	local ForwardVelocity
+	local BackwardVelocity
+	local StrafeVelocity
 	local Downwards
 	local Diagonal
 	local LimitItem
 	local Mouse
-	local adjacent, lastpos, label = {}, Vector3.zero
+	local adjacent, lastpos, label, animTrack = {}, Vector3.zero
 	
 	for x = -3, 3, 3 do
 		for y = -3, 3, 3 do
@@ -5676,6 +5680,42 @@ run(function()
 		return nil, 0
 	end
 	
+	local function playTowerAnim(animName)
+		if not entitylib.isAlive then return end
+		local char = entitylib.character.Character
+		if not char then return end
+		local animate = char:FindFirstChild('Animate')
+		local humanoid = char:FindFirstChildOfClass('Humanoid')
+		local animator = humanoid and humanoid:FindFirstChildOfClass('Animator')
+		if not animate or not animator then return end
+		local animObj = animate[animName] and animate[animName]:FindFirstChildWhichIsA('Animation')
+		if not animObj then return end
+	
+		local same = pcall(function()
+			return animTrack and animTrack.Animation == animObj
+		end)
+		if same then
+			return
+		end
+	
+		if animTrack then
+			pcall(function()
+				animTrack:Stop()
+			end)
+			animTrack = nil
+		end
+	
+local ok, track = pcall(function()
+		return animator:LoadAnimation(animObj)
+	end)
+	if ok and track then
+		track.Priority = Enum.AnimationPriority.Core
+		track.Looped = true
+		track:Play()
+		animTrack = track
+	end
+	end
+	
 	Scaffold = vape.Categories.Utility:CreateModule({
 		Name = 'Scaffold',
 		Function = function(callback)
@@ -5702,11 +5742,33 @@ run(function()
 	
 						if wool then
 							local root = entitylib.character.RootPart
+							local towerActive = false
 							if Tower.Enabled and inputService:IsKeyDown(Enum.KeyCode.Space) and (not inputService:GetFocusedTextBox()) then
-								local state = entitylib.character.Humanoid:GetState()
-								if state == Enum.HumanoidStateType.Landed or state == Enum.HumanoidStateType.Running then
-									root.Velocity = Vector3.new(root.Velocity.X, 38 * (Velocity.Value / 100), root.Velocity.Z)
+								towerActive = true
+								local scale = Velocity.Value / 100
+								local wkey = inputService:IsKeyDown(Enum.KeyCode.W) or inputService:IsKeyDown(Enum.KeyCode.Up)
+								local skey = inputService:IsKeyDown(Enum.KeyCode.S) or inputService:IsKeyDown(Enum.KeyCode.Down)
+								local akey = inputService:IsKeyDown(Enum.KeyCode.A) or inputService:IsKeyDown(Enum.KeyCode.Left)
+								local dkey = inputService:IsKeyDown(Enum.KeyCode.D) or inputService:IsKeyDown(Enum.KeyCode.Right)
+	
+								local horizontal = Vector3.new(root.Velocity.X, 0, root.Velocity.Z)
+								if (wkey or skey or akey or dkey) and (ForwardVelocity.Value + BackwardVelocity.Value + StrafeVelocity.Value) > 0 then
+									local camForward = gameCamera.CFrame.LookVector * Vector3.new(1, 0, 1)
+									if camForward.Magnitude < 0.01 then
+										camForward = root.CFrame.LookVector * Vector3.new(1, 0, 1)
+									end
+									camForward = camForward.Unit
+									local camRight = gameCamera.CFrame.RightVector * Vector3.new(1, 0, 1)
+									if camRight.Magnitude < 0.01 then
+										camRight = root.CFrame.RightVector * Vector3.new(1, 0, 1)
+									end
+									camRight = camRight.Unit
+									horizontal = camForward * (((wkey and ForwardVelocity.Value or 0) - (skey and BackwardVelocity.Value or 0)) * scale)
+									horizontal += camRight * (((dkey and StrafeVelocity.Value or 0) - (akey and StrafeVelocity.Value or 0)) * scale)
 								end
+	
+								root.Velocity = Vector3.new(horizontal.X, UpVelocity.Value * scale, horizontal.Z)
+								playTowerAnim((wkey or skey or akey or dkey) and 'jump' or 'idle')
 							end
 	
 							for i = Expand.Value, 1, -1 do
@@ -5727,11 +5789,18 @@ run(function()
 										task.spawn(bedwars.placeBlock, blockpos, wool, false)
 									end
 								end
-								lastpos = currentpos
+lastpos = currentpos
 							end
 						end
+
+						if not towerActive and animTrack then
+							pcall(function()
+								animTrack:Stop()
+							end)
+							animTrack = nil
+						end
 					end
-	
+
 					task.wait(0.03)
 				until not Scaffold.Enabled
 			else
@@ -5755,7 +5824,35 @@ run(function()
 		Max = 200,
 		Default = 100,
 		Suffix = '%',
-		Tooltip = 'Scales the tower jump velocity'
+		Tooltip = 'Scales all tower velocities'
+	})
+	UpVelocity = Scaffold:CreateSlider({
+		Name = 'Up Velocity',
+		Min = 0,
+		Max = 100,
+		Default = 38,
+		Tooltip = 'Vertical velocity while tower jumping'
+	})
+	ForwardVelocity = Scaffold:CreateSlider({
+		Name = 'Forward Velocity',
+		Min = 0,
+		Max = 100,
+		Default = 0,
+		Tooltip = 'Horizontal velocity while moving forward during a tower jump'
+	})
+	BackwardVelocity = Scaffold:CreateSlider({
+		Name = 'Backward Velocity',
+		Min = 0,
+		Max = 100,
+		Default = 0,
+		Tooltip = 'Horizontal velocity while moving backward during a tower jump'
+	})
+	StrafeVelocity = Scaffold:CreateSlider({
+		Name = 'Strafe Velocity',
+		Min = 0,
+		Max = 100,
+		Default = 0,
+		Tooltip = 'Horizontal velocity while strafing during a tower jump'
 	})
 	Downwards = Scaffold:CreateToggle({
 		Name = 'Downwards',
