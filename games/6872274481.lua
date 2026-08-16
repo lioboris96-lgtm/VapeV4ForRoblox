@@ -3717,7 +3717,6 @@ run(function()
 	local Range
 	local List
 	local ToolCheck
-	local ShotDelay
 	local rayCheck = RaycastParams.new()
 	rayCheck.FilterType = Enum.RaycastFilterType.Include
 	local projectileRemote = {InvokeServer = function() end}
@@ -3807,7 +3806,7 @@ run(function()
 											end
 										end)
 	
-										FireDelays[item.itemType] = tick() + (ShotDelay.Value > 0 and ShotDelay.Value or itemMeta.fireDelaySec)
+										FireDelays[item.itemType] = tick() + itemMeta.fireDelaySec
 										if switched then
 											task.wait(0.05)
 										end
@@ -3843,17 +3842,6 @@ run(function()
 		Name = 'Tool Check',
 		Default = true,
 		Tooltip = 'Only shoots projectiles when you are holding the tool'
-	})
-	ShotDelay = ProjectileAura:CreateSlider({
-		Name = 'Shot Delay',
-		Min = 0,
-		Max = 2,
-		Default = 0,
-		Decimal = 10,
-		Suffix = function(val)
-			return val == 1 and 'second' or 'seconds'
-		end,
-		Tooltip = 'Delay between shots. 0 uses the item default'
 	})
 end)
 	
@@ -5621,6 +5609,7 @@ run(function()
 	local Scaffold
 	local Expand
 	local Tower
+	local Velocity
 	local Downwards
 	local Diagonal
 	local LimitItem
@@ -5714,7 +5703,10 @@ run(function()
 						if wool then
 							local root = entitylib.character.RootPart
 							if Tower.Enabled and inputService:IsKeyDown(Enum.KeyCode.Space) and (not inputService:GetFocusedTextBox()) then
-								root.Velocity = Vector3.new(root.Velocity.X, 38, root.Velocity.Z)
+								local state = entitylib.character.Humanoid:GetState()
+								if state == Enum.HumanoidStateType.Landed or state == Enum.HumanoidStateType.Running then
+									root.Velocity = Vector3.new(root.Velocity.X, 38 * (Velocity.Value / 100), root.Velocity.Z)
+								end
 							end
 	
 							for i = Expand.Value, 1, -1 do
@@ -5756,6 +5748,14 @@ run(function()
 	Tower = Scaffold:CreateToggle({
 		Name = 'Tower',
 		Default = true
+	})
+	Velocity = Scaffold:CreateSlider({
+		Name = 'Velocity Scale',
+		Min = 0,
+		Max = 200,
+		Default = 100,
+		Suffix = '%',
+		Tooltip = 'Scales the tower jump velocity'
 	})
 	Downwards = Scaffold:CreateToggle({
 		Name = 'Downwards',
