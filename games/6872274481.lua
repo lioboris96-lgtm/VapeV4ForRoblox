@@ -5691,37 +5691,37 @@ run(function()
 		local animObj = animate[animName] and animate[animName]:FindFirstChildWhichIsA('Animation')
 		if not animObj then return end
 	
-		local same = pcall(function()
+local same = pcall(function()
 			return animTrack and animTrack.Animation == animObj
 		end)
 		if same and animTrack.IsPlaying then
 			animTrack:Play()
 			return
 		end
-	
+
 		if animTrack then
 			pcall(function()
 				animTrack:Stop()
 			end)
 			animTrack = nil
 		end
-	
-local ok, track = pcall(function()
-		return animator:LoadAnimation(animObj)
-	end)
-	if ok and track then
-		track.Priority = Enum.AnimationPriority.Core
-		track.Looped = true
-		track:Play()
-		animTrack = track
-	end
-	
-	for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
-		local id = t.Animation and t.Animation.AnimationId
-		if id and (id:find('507767968') or id:find('507765000')) then
-			pcall(function() t:Stop() end)
+
+		local ok, track = pcall(function()
+			return animator:LoadAnimation(animObj)
+		end)
+		if ok and track then
+			track.Priority = Enum.AnimationPriority.Core
+			track.Looped = true
+			track:Play()
+			animTrack = track
 		end
-	end
+
+		for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
+			local id = t.Animation and t.Animation.AnimationId
+			if id and (id:find('507767968') or id:find('507765000')) then
+				pcall(function() t:Stop() end)
+			end
+		end
 	end
 	
 	Scaffold = vape.Categories.Utility:CreateModule({
