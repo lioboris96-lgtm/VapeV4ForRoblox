@@ -5694,7 +5694,8 @@ run(function()
 		local same = pcall(function()
 			return animTrack and animTrack.Animation == animObj
 		end)
-		if same then
+		if same and animTrack.IsPlaying then
+			animTrack:Play()
 			return
 		end
 	
@@ -5713,6 +5714,13 @@ local ok, track = pcall(function()
 		track.Looped = true
 		track:Play()
 		animTrack = track
+	end
+	
+	for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
+		local id = t.Animation and t.Animation.AnimationId
+		if id and (id:find('507767968') or id:find('507765000')) then
+			pcall(function() t:Stop() end)
+		end
 	end
 	end
 	
