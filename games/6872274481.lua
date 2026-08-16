@@ -3784,6 +3784,16 @@ run(function()
 											local dir, id = CFrame.lookAt(pos, calc).LookVector, httpService:GenerateGUID(true)
 											local shootPosition = (CFrame.new(pos, calc) * CFrame.new(Vector3.new(-bedwars.BowConstantsTable.RelX, -bedwars.BowConstantsTable.RelY, -bedwars.BowConstantsTable.RelZ))).Position
 											bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPosition, id, dir * projSpeed, {drawDurationSeconds = 1})
+
+											local fp = itemMeta.firstPerson and itemMeta.firstPerson.fireAnimation
+											if fp and fp ~= 0 then
+												bedwars.ViewmodelController:playAnimation(fp, {fadeTime = 0.12})
+											end
+											local tp = itemMeta.thirdPerson and itemMeta.thirdPerson.fireAnimation
+											if tp and tp ~= 0 then
+												bedwars.GameAnimationUtil:playAnimation(lplr, tp)
+											end
+
 											local res = projectileRemote:InvokeServer(item.tool, ammo, projectile, shootPosition, pos, dir * projSpeed, id, {drawDurationSeconds = 1, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
 											if not res then
 												FireDelays[item.itemType] = tick()
