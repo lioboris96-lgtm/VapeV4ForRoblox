@@ -5691,10 +5691,10 @@ run(function()
 		local animObj = animate[animName] and animate[animName]:FindFirstChildWhichIsA('Animation')
 		if not animObj then return end
 	
-local same = pcall(function()
+local ok, same = pcall(function()
 			return animTrack and animTrack.Animation == animObj
 		end)
-		if same and animTrack.IsPlaying then
+		if ok and same and animTrack.IsPlaying then
 			animTrack:Play()
 			return
 		end
