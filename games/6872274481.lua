@@ -3717,7 +3717,7 @@ run(function()
 	local Range
 	local List
 	local ToolCheck
-	local Speed
+	local FireDelay
 	local rayCheck = RaycastParams.new()
 	rayCheck.FilterType = Enum.RaycastFilterType.Include
 	local projectileRemote = {InvokeServer = function() end}
@@ -3807,7 +3807,7 @@ run(function()
 											end
 										end)
 	
-										FireDelays[item.itemType] = tick() + (itemMeta.fireDelaySec / (Speed.Value * 0.2))
+										FireDelays[item.itemType] = tick() + (FireDelay.Value * 0.1)
 										if switched then
 											task.wait(0.05)
 										end
@@ -3844,13 +3844,13 @@ run(function()
 		Default = true,
 		Tooltip = 'Only shoots projectiles when you are holding the tool'
 	})
-	Speed = ProjectileAura:CreateSlider({
-		Name = 'Speed',
-		Min = 1,
-		Max = 10,
-		Default = 5,
+	FireDelay = ProjectileAura:CreateSlider({
+		Name = 'Fire Delay',
+		Min = 0,
+		Max = 30,
+		Default = 10,
 		Suffix = function(val)
-			return val == 10 and 'UNHINGED' or 'x' .. string.format('%.1f', val * 0.2)
+			return string.format('%.1fs', val * 0.1)
 		end
 	})
 end)
