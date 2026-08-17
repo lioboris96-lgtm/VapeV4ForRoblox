@@ -3824,7 +3824,7 @@ add a speed slider to this script that customises the speed and frequency from w
             return val == 1 and 'stud' or 'studs'
         end
     })
-end)" add this without changing anything else
+end)
 	
 run(function()
 	local Speed
