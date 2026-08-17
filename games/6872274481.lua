@@ -3726,24 +3726,6 @@ run(function()
         projectileRemote = bedwars.Client:Get(remotes.FireProjectile).instance
     end)
     
-    local function playShootAnimation(item, itemMeta)
-        -- Method 1: Play standard Bedwars item animation controller if available
-        if bedwars.ItemAnimationController then
-            bedwars.ItemAnimationController:playAnimation(item.tool, "attack")
-        end
-        
-        -- Method 2: Fallback to playing projectile/item animation via Humanoid directly
-        local animId = itemMeta and (itemMeta.chargeAnimation or itemMeta.shootAnimation or itemMeta.attackAnimation)
-        if animId and entitylib.character and entitylib.character.Humanoid then
-            local animator = entitylib.character.Humanoid:FindFirstChildOfClass("Animator") or entitylib.character.Humanoid
-            local animation = Instance.new("Animation")
-            animation.AnimationId = typeof(animId) == "table" and animId.assetId or tostring(animId)
-            
-            local track = animator:LoadAnimation(animation)
-            track:Play()
-        end
-    end
-
     local function getAmmo(check)
         for _, item in store.inventory.inventory.items do
             if check.ammoItemTypes and table.find(check.ammoItemTypes, item.itemType) then
@@ -3798,15 +3780,10 @@ run(function()
                                         local switched = switchItem(item.tool)
     
                                         task.spawn(function()
-                                            -- Trigger animation playback locally
-                                            playShootAnimation(item, itemMeta)
-
                                             local dir, id = CFrame.lookAt(pos, calc).LookVector, httpService:GenerateGUID(true)
                                             local shootPosition = (CFrame.new(pos, calc) * CFrame.new(Vector3.new(-bedwars.BowConstantsTable.RelX, -bedwars.BowConstantsTable.RelY, -bedwars.BowConstantsTable.RelZ))).Position
-                                            
                                             bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPosition, id, dir * projSpeed, {drawDurationSeconds = 1})
                                             local res = projectileRemote:InvokeServer(item.tool, ammo, projectile, shootPosition, pos, dir * projSpeed, id, {drawDurationSeconds = 1, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
-                                            
                                             if not res then
                                                 FireDelays[item.itemType] = tick()
                                             else
@@ -3818,8 +3795,9 @@ run(function()
                                             end
                                         end)
     
-                                        local customDelay = FireRate and FireRate.Value or itemMeta.fireDelaySec
-                                        FireDelays[item.itemType] = tick() + customDelay
+                                        -- Custom fire delay calculation override
+                                        local delayVal = (FireRate and FireRate.Value or itemMeta.fireDelaySec)
+                                        FireDelays[item.itemType] = tick() + delayVal
                                         
                                         if switched then
                                             task.wait(0.05)
@@ -3829,7 +3807,8 @@ run(function()
                             end
                         end
                     end
-                    task.wait(FireRate and math.min(FireRate.Value, 0.1) or 0.1)
+                    -- Loop check interval dynamically matches slider value
+                    task.wait(FireRate and math.clamp(FireRate.Value, 0.01, 0.1) or 0.1)
                 until not ProjectileAura.Enabled
             end
         end,
