@@ -3781,7 +3781,6 @@ run(function()
 										targetinfo.Targets[ent] = tick() + 1
 										local switched = switchItem(item.tool)
 
-										-- lock the delay BEFORE spawning so it cant queue up a million shots
 										FireDelays[item.itemType] = tick() + FireDelay.Value
 	
 										task.spawn(function()
@@ -3800,7 +3799,6 @@ run(function()
 
 											local res = projectileRemote:InvokeServer(item.tool, ammo, projectile, shootPosition, pos, dir * projSpeed, id, {drawDurationSeconds = 1, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
 											if not res then
-												-- shot got rejected, reset the delay so it can try again
 												FireDelays[item.itemType] = tick()
 											else
 												local shoot = itemMeta.launchSound
@@ -3854,6 +3852,31 @@ run(function()
 		Default = 1,
 		Suffix = function(val)
 			return val == 1 and 'second' or 'seconds'
+		end
+	})
+	ProjectileAura:CreateButton({
+		Name = 'Add Held Projectile',
+		Tooltip = 'Adds your currently held item to the projectile whitelist',
+		Function = function()
+			local tool = store.hand.tool
+			if not tool then return end
+
+			local itemType = nil
+			for _, item in store.inventory.inventory.items do
+				if item.tool == tool then
+					itemType = item.itemType
+					break
+				end
+			end
+
+			if not itemType then return end
+
+			local meta = bedwars.ItemMeta[itemType]
+			if not meta or not meta.projectileSource then return end
+
+			if not table.find(List.ListEnabled, itemType) then
+				table.insert(List.ListEnabled, itemType)
+			end
 		end
 	})
 end)
