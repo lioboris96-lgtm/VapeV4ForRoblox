@@ -3780,6 +3780,9 @@ run(function()
 									if calc then
 										targetinfo.Targets[ent] = tick() + 1
 										local switched = switchItem(item.tool)
+
+										-- lock the delay BEFORE spawning so it cant queue up a million shots
+										FireDelays[item.itemType] = tick() + FireDelay.Value
 	
 										task.spawn(function()
 											local dir, id = CFrame.lookAt(pos, calc).LookVector, httpService:GenerateGUID(true)
@@ -3797,6 +3800,7 @@ run(function()
 
 											local res = projectileRemote:InvokeServer(item.tool, ammo, projectile, shootPosition, pos, dir * projSpeed, id, {drawDurationSeconds = 1, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
 											if not res then
+												-- shot got rejected, reset the delay so it can try again
 												FireDelays[item.itemType] = tick()
 											else
 												local shoot = itemMeta.launchSound
@@ -3806,8 +3810,7 @@ run(function()
 												end
 											end
 										end)
-	
-										FireDelays[item.itemType] = tick() + (FireDelay.Value * 0.1)
+
 										if switched then
 											task.wait(0.05)
 										end
@@ -3847,10 +3850,10 @@ run(function()
 	FireDelay = ProjectileAura:CreateSlider({
 		Name = 'Fire Delay',
 		Min = 0,
-		Max = 30,
-		Default = 10,
+		Max = 3,
+		Default = 1,
 		Suffix = function(val)
-			return string.format('%.1fs', val * 0.1)
+			return val == 1 and 'second' or 'seconds'
 		end
 	})
 end)
