@@ -1161,7 +1161,7 @@ run(function()
 end)
 	
 run(function()
-	local ProjectileAura
+	local 
 	local Targets
 	local Range
 	local List
@@ -1180,8 +1180,8 @@ run(function()
 		return items
 	end
 	
-	ProjectileAura = vape.Categories.Blatant:CreateModule({
-		Name = 'ProjectileAura',
+	 = vape.Categories.Blatant:CreateModule({
+		Name = '',
 		Function = function(callback)
 			if callback then
 				repeat
@@ -1213,20 +1213,20 @@ run(function()
 						end
 					end
 					task.wait(0.1)
-				until not ProjectileAura.Enabled
+				until not .Enabled
 			end
 		end,
 		Tooltip = 'Shoots people around you'
 	})
-	Targets = ProjectileAura:CreateTargets({
+	Targets = :CreateTargets({
 		Players = true, 
 		Walls = true
 	})
-	List = ProjectileAura:CreateTextList({
+	List = :CreateTextList({
 		Name = 'Projectiles',
 		Default = {'Arrow', 'Snowball', 'Capybara'}
 	})
-	Range = ProjectileAura:CreateSlider({
+	Range = :CreateSlider({
 		Name = 'Range',
 		Min = 1,
 		Max = 50,
