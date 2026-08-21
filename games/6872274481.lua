@@ -3869,8 +3869,7 @@ run(function()
 					local meta = bedwars.ItemMeta[item.itemType]
 					if not meta or not meta.projectileSource then return end
 
-					local ammo = getAmmo(meta.projectileSource)
-					if not ammo then return end
+					local ammo = getAmmo(meta.projectileSource) or item.itemType
 
 					if not table.find(List.ListEnabled, ammo) then
 						table.insert(List.ListEnabled, ammo)
