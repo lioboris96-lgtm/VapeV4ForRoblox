@@ -3788,11 +3788,14 @@ run(function()
 											local shootPosition = (CFrame.new(pos, calc) * CFrame.new(Vector3.new(-bedwars.BowConstantsTable.RelX, -bedwars.BowConstantsTable.RelY, -bedwars.BowConstantsTable.RelZ))).Position
 											bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPosition, id, dir * projSpeed, {drawDurationSeconds = 1})
 
-											local fp = itemMeta.firstPerson and itemMeta.firstPerson.fireAnimation
+											local ammoMeta = bedwars.ItemMeta[ammo] or {}
+											local animSource = (itemMeta.firstPerson and itemMeta) or (ammoMeta.firstPerson and ammoMeta) or {}
+
+											local fp = animSource.firstPerson and animSource.firstPerson.fireAnimation
 											if fp and fp ~= 0 then
 												bedwars.ViewmodelController:playAnimation(fp, {fadeTime = 0.12})
 											end
-											local tp = itemMeta.thirdPerson and itemMeta.thirdPerson.fireAnimation
+											local tp = animSource.thirdPerson and animSource.thirdPerson.fireAnimation
 											if tp and tp ~= 0 then
 												bedwars.GameAnimationUtil:playAnimation(lplr, tp)
 											end
@@ -3856,26 +3859,24 @@ run(function()
 	})
 	ProjectileAura:CreateButton({
 		Name = 'Add Held Projectile',
-		Tooltip = 'Adds your currently held item to the projectile whitelist',
+		Tooltip = 'Adds your currently held item\'s ammo to the projectile whitelist',
 		Function = function()
 			local tool = store.hand.tool
 			if not tool then return end
 
-			local itemType = nil
 			for _, item in store.inventory.inventory.items do
 				if item.tool == tool then
-					itemType = item.itemType
-					break
+					local meta = bedwars.ItemMeta[item.itemType]
+					if not meta or not meta.projectileSource then return end
+
+					local ammo = getAmmo(meta.projectileSource)
+					if not ammo then return end
+
+					if not table.find(List.ListEnabled, ammo) then
+						table.insert(List.ListEnabled, ammo)
+					end
+					return
 				end
-			end
-
-			if not itemType then return end
-
-			local meta = bedwars.ItemMeta[itemType]
-			if not meta or not meta.projectileSource then return end
-
-			if not table.find(List.ListEnabled, itemType) then
-				table.insert(List.ListEnabled, itemType)
 			end
 		end
 	})
