@@ -3717,7 +3717,6 @@ run(function()
 	local Range
 	local List
 	local ToolCheck
-	local FireDelay
 	local rayCheck = RaycastParams.new()
 	rayCheck.FilterType = Enum.RaycastFilterType.Include
 	local projectileRemote = {InvokeServer = function() end}
@@ -3780,8 +3779,6 @@ run(function()
 									if calc then
 										targetinfo.Targets[ent] = tick() + 1
 										local switched = switchItem(item.tool)
-
-										FireDelays[item.itemType] = tick() + FireDelay.Value
 	
 										task.spawn(function()
 											local dir, id = CFrame.lookAt(pos, calc).LookVector, httpService:GenerateGUID(true)
@@ -3808,7 +3805,8 @@ run(function()
 												end
 											end
 										end)
-
+	
+										FireDelays[item.itemType] = tick() + itemMeta.fireDelaySec
 										if switched then
 											task.wait(0.05)
 										end
@@ -3844,40 +3842,6 @@ run(function()
 		Name = 'Tool Check',
 		Default = true,
 		Tooltip = 'Only shoots projectiles when you are holding the tool'
-	})
-	FireDelay = ProjectileAura:CreateSlider({
-		Name = 'Fire Delay',
-		Min = 0,
-		Max = 3,
-		Default = 1,
-		Suffix = function(val)
-			return val == 1 and 'second' or 'seconds'
-		end
-	})
-	ProjectileAura:CreateButton({
-		Name = 'Add Held Projectile',
-		Tooltip = 'Adds your currently held item to the projectile whitelist',
-		Function = function()
-			local tool = store.hand.tool
-			if not tool then return end
-
-			local itemType = nil
-			for _, item in store.inventory.inventory.items do
-				if item.tool == tool then
-					itemType = item.itemType
-					break
-				end
-			end
-
-			if not itemType then return end
-
-			local meta = bedwars.ItemMeta[itemType]
-			if not meta or not meta.projectileSource then return end
-
-			if not table.find(List.ListEnabled, itemType) then
-				table.insert(List.ListEnabled, itemType)
-			end
-		end
 	})
 end)
 	
