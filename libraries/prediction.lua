@@ -217,11 +217,17 @@ function module.SolveTrajectory(origin, projectileSpeed, gravity, targetPos, tar
 	-- Use iterative lead calculation - more stable than quartic for moving targets
 	-- Start with direct time, then refine with target motion and gravity
 	local function getTargetAt(t)
-		local base = targetPos + targetVelocity * t
-		if playerGravity and playerGravity > 0 then
-			base = base + Vector3.new(0, -0.5 * playerGravity * t * t, 0)
+		local baseXZ = Vector3.new(targetPos.X + targetVelocity.X * t, 0, targetPos.Z + targetVelocity.Z * t)
+		local y
+		if playerJump and playerJump > 0 then
+			y = targetPos.Y + playerJump * t - 0.5 * (playerGravity or workspace.Gravity) * t * t
+		elseif playerGravity and playerGravity > 0 and targetVelocity.Y ~= 0 then
+			y = targetPos.Y + targetVelocity.Y * t - 0.5 * playerGravity * t * t
+		else
+			y = targetPos.Y + targetVelocity.Y * t
 		end
-		return base
+		-- HipHeight is offset for aim point, keep targetPos's Y as is
+		return Vector3.new(baseXZ.X, y, baseXZ.Z)
 	end
 
 	local bestAim, bestErr, bestT = nil, math.huge, nil
