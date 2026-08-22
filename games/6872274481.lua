@@ -2013,8 +2013,12 @@ run(function()
                                 continue
                             end
     
-                            if not LegitAura.Enabled and (tick() - bedwars.SwordController.lastSwing) >= (Perfect.Enabled and (meta.sword.attackSpeed or 0.11) or math.max(SwingTime.Value, 0.11)) then
-                                bedwars.SwordController:playSwordEffect(meta, false)
+                            if not LegitAura.Enabled and (tick() - bedwars.SwordController.lastSwing) >= (Perfect.Enabled and (meta.sword.attackSpeed or 0.14) or math.max(SwingTime.Value, 0.14)) then
+                                if entitylib.isAlive and lplr and lplr.Character and lplr.Character.Parent then
+                                    pcall(function()
+                                        bedwars.SwordController:playSwordEffect(meta, false)
+                                    end)
+                                end
                                 bedwars.SwordController.lastSwing = tick()
                             end
     
@@ -2026,26 +2030,35 @@ run(function()
                             if delta.Magnitude > bedwars.CombatConstant.RAYCAST_SWORD_CHARACTER_DISTANCE then
                                 continue
                             end
+                            local attackCooldown = Perfect.Enabled and (meta.sword and meta.sword.attackSpeed or 0.14) or math.max(SwingTime.Value, 0.14)
+                            if tick() - lastattacked < attackCooldown then
+                                continue
+                            end
+                            if not entitylib.isAlive or not ent.Character or not ent.Character.Parent or not ent.RootPart or not ent.RootPart.Parent then
+                                continue
+                            end
                             lastattacked = tick()
     
                             local dir = CFrame.lookAt(localPosition, ent.RootPart.Position).LookVector
                             local pos = localPosition + dir * math.max(delta.Magnitude - 14.4, 0)
                             bedwars.SwordController.lastAttack = workspace:GetServerTimeNow()
-                            bedwars.Client:Get(remotes.AttackEntity):SendToServer({
-                                weapon = sword.tool,
-                                chargedAttack = {chargeRatio = 0},
-                                entityInstance = ent.Character,
-                                validate = {
-                                    raycast = {
-                                        cameraPosition = {value = pos},
-                                        cursorDirection = {value = dir},
+                            pcall(function()
+                                bedwars.Client:Get(remotes.AttackEntity):SendToServer({
+                                    weapon = sword.tool,
+                                    chargedAttack = {chargeRatio = 0},
+                                    entityInstance = ent.Character,
+                                    validate = {
+                                        raycast = {
+                                            cameraPosition = {value = pos},
+                                            cursorDirection = {value = dir},
+                                        },
+                                        targetPosition = {
+                                            value = ent.RootPart.Position,
+                                        },
+                                        selfPosition = {value = pos},
                                     },
-                                    targetPosition = {
-                                        value = ent.RootPart.Position,
-                                    },
-                                    selfPosition = {value = pos},
-                                },
-                            })
+                                })
+                            end)
                         else
                             lastfound = 0
                             frames = 0
