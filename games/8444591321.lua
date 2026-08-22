@@ -33,7 +33,9 @@ end
 
 vape.Place = 6872274481
 if isfile('newvape/games/'..vape.Place..'.lua') then
-	loadstring(readfile('newvape/games/'..vape.Place..'.lua'), 'bedwars')()
+	local src = readfile('newvape/games/'..vape.Place..'.lua')
+	local fn, err = loadstring(src, 'bedwars')
+	if fn then fn() else if vape then vape:CreateNotification('Vape', 'BedWars load failed: '..tostring(err), 30, 'alert') end end
 else
 	if not shared.VapeDeveloper then
 		local commit = 'main'
@@ -43,7 +45,9 @@ else
 			return game:HttpGet('https://raw.githubusercontent.com/lioboris96-lgtm/VapeV4ForRoblox/'..commit..'/games/'..vape.Place..'.lua', true) 
 		end)
 		if suc and res ~= '404: Not Found' then
-			loadstring(downloadFile('newvape/games/'..vape.Place..'.lua'), 'bedwars')()
+			local src = downloadFile('newvape/games/'..vape.Place..'.lua')
+			local fn, err = loadstring(src, 'bedwars')
+			if fn then fn() else if vape then vape:CreateNotification('Vape', 'BedWars load failed: '..tostring(err), 30, 'alert') end end
 		end
 	end
 end

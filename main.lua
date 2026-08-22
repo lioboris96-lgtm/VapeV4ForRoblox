@@ -103,11 +103,15 @@ vape = loadstring(downloadFile('newvape/guis/'..gui..'.lua'), 'gui')()
 shared.vape = vape
 
 if not shared.VapeIndependent then
-	if setthreadidentity then setthreadidentity(8) end
-	loadstring(downloadFile('newvape/games/universal.lua'), 'universal')()
+if setthreadidentity then setthreadidentity(8) end
+local usrc = downloadFile('newvape/games/universal.lua')
+local ufn, uerr = loadstring(usrc, 'universal')
+if ufn then ufn() else if vape then vape:CreateNotification('Vape', 'Universal load failed: '..tostring(uerr), 30, 'alert') end end
 	if isfile('newvape/games/'..game.PlaceId..'.lua') then
 		if setthreadidentity then setthreadidentity(8) end
-		loadstring(readfile('newvape/games/'..game.PlaceId..'.lua'), tostring(game.PlaceId))(...)
+		local src = readfile('newvape/games/'..game.PlaceId..'.lua')
+		local fn, err = loadstring(src, tostring(game.PlaceId))
+		if fn then fn(...) else if vape then vape:CreateNotification('Vape', 'Game load failed: '..tostring(err), 30, 'alert') end end
 	else
 		if not shared.VapeDeveloper then
 			local commit = 'main'
@@ -118,7 +122,9 @@ if not shared.VapeIndependent then
 			end)
 			if suc and res ~= '404: Not Found' then
 				if setthreadidentity then setthreadidentity(8) end
-				loadstring(downloadFile('newvape/games/'..game.PlaceId..'.lua'), tostring(game.PlaceId))(...)
+				local src = downloadFile('newvape/games/'..game.PlaceId..'.lua')
+				local fn, err = loadstring(src, tostring(game.PlaceId))
+				if fn then fn(...) else if vape then vape:CreateNotification('Vape', 'Game load failed: '..tostring(err), 30, 'alert') end end
 			end
 		end
 	end
