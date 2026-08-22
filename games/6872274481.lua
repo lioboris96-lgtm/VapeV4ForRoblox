@@ -3728,8 +3728,11 @@ run(function()
 	local ProjectileAura
 	local Targets
 	local Range
+	local CloseRange
 	local List
 	local ToolCheck
+	local Charge
+	local ChargeDuration
 	local rayCheck = RaycastParams.new()
 	rayCheck.FilterType = Enum.RaycastFilterType.Include
 	local projectileRemote = {InvokeServer = function() end}
@@ -3779,6 +3782,7 @@ run(function()
 	
 						if ent then
 							local pos = entitylib.character.RootPart.Position
+							local distToEnt = (ent.RootPart.Position - pos).Magnitude
 							for _, data in getProjectiles() do
 								local item, ammo, projectile, itemMeta = unpack(data)
 								if ToolCheck.Enabled and item.tool ~= store.hand.tool then
@@ -3787,39 +3791,75 @@ run(function()
 								if (FireDelays[item.itemType] or 0) < tick() then
 									rayCheck.FilterDescendantsInstances = {workspace.Map}
 									local meta = bedwars.ProjectileMeta[projectile]
-									local projSpeed, gravity = meta.launchVelocity, meta.gravitationalAcceleration or 196.2
+									if not meta then continue end
+									local isChargeable = itemMeta.maxStrengthChargeSec and itemMeta.maxStrengthChargeSec > 0
+									local shouldCharge = Charge.Enabled and isChargeable and distToEnt > CloseRange.Value
+									local chargeTime = 0
+									local velocityMult = 1
+									if isChargeable then
+										local minScalar = itemMeta.minStrengthScalar or 0.3
+										if shouldCharge then
+											chargeTime = math.min(ChargeDuration.Value, itemMeta.maxStrengthChargeSec)
+											velocityMult = 1
+										else
+											velocityMult = minScalar
+										end
+									end
+									local projSpeed = meta.launchVelocity * velocityMult
+									local gravity = meta.gravitationalAcceleration or 196.2
 									local calc = prediction.SolveTrajectory(pos, projSpeed, gravity, ent.RootPart.Position, ent.RootPart.Velocity, workspace.Gravity, ent.HipHeight, ent.Jumping and 42.6 or nil, rayCheck)
 									if calc then
 										targetinfo.Targets[ent] = tick() + 1
 										local switched = switchItem(item.tool)
 	
 										task.spawn(function()
+											local slowHandle
+											if shouldCharge and chargeTime > 0 then
+												pcall(function()
+													local mult = itemMeta.walkSpeedMultiplier or 0.35
+													local sc = bedwars.SprintController
+													if not sc then
+														local Knit = require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient
+														sc = Knit.Controllers.SprintController
+													end
+													if sc and sc.getMovementStatusModifier then
+														slowHandle = sc:getMovementStatusModifier():addModifier({blockSprint = true, moveSpeedMultiplier = mult})
+													end
+												end)
+												if itemMeta.chargeBeginSound then
+													pcall(function()
+														local snd = itemMeta.chargeBeginSound[math.random(1, #itemMeta.chargeBeginSound)]
+														if snd then bedwars.SoundManager:playSound(snd) end
+													end)
+												end
+												task.wait(chargeTime)
+											end
 											local dir, id = CFrame.lookAt(pos, calc).LookVector, httpService:GenerateGUID(true)
 											local shootPosition = (CFrame.new(pos, calc) * CFrame.new(Vector3.new(-bedwars.BowConstantsTable.RelX, -bedwars.BowConstantsTable.RelY, -bedwars.BowConstantsTable.RelZ))).Position
-											bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPosition, id, dir * projSpeed, {drawDurationSeconds = 1})
-
+											local vel = dir * projSpeed
+											bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPosition, id, vel, {drawDurationSeconds = chargeTime > 0 and chargeTime or 1})
 											local fp = itemMeta.firstPerson and itemMeta.firstPerson.fireAnimation
 											if fp and fp ~= 0 then
-												bedwars.ViewmodelController:playAnimation(fp, {fadeTime = 0.12})
+												pcall(function() bedwars.ViewmodelController:playAnimation(fp, {fadeTime = 0.12}) end)
 											end
 											local tp = itemMeta.thirdPerson and itemMeta.thirdPerson.fireAnimation
 											if tp and tp ~= 0 then
-												bedwars.GameAnimationUtil:playAnimation(lplr, tp)
+												pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, tp) end)
 											end
-
-											local res = projectileRemote:InvokeServer(item.tool, ammo, projectile, shootPosition, pos, dir * projSpeed, id, {drawDurationSeconds = 1, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
+											local res = projectileRemote:InvokeServer(item.tool, ammo, projectile, shootPosition, pos, vel, id, {drawDurationSeconds = chargeTime > 0 and chargeTime or 1, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
+											if slowHandle then pcall(function() slowHandle:Destroy() end) end
 											if not res then
 												FireDelays[item.itemType] = tick()
 											else
 												local shoot = itemMeta.launchSound
 												shoot = shoot and shoot[math.random(1, #shoot)] or nil
 												if shoot then
-													bedwars.SoundManager:playSound(shoot)
+													pcall(function() bedwars.SoundManager:playSound(shoot) end)
 												end
 											end
 										end)
 	
-										FireDelays[item.itemType] = tick() + itemMeta.fireDelaySec
+										FireDelays[item.itemType] = tick() + itemMeta.fireDelaySec + (shouldCharge and chargeTime or 0)
 										if switched then
 											task.wait(0.05)
 										end
@@ -3849,6 +3889,71 @@ run(function()
 		Default = 50,
 		Suffix = function(val)
 			return val == 1 and 'stud' or 'studs'
+		end
+	})
+	CloseRange = ProjectileAura:CreateSlider({
+		Name = 'No Charge Range',
+		Min = 0,
+		Max = 50,
+		Default = 12,
+		Tooltip = 'Within this range projectiles fire instantly without charging',
+		Suffix = function(val)
+			return val == 1 and 'stud' or 'studs'
+		end
+	})
+	Charge = ProjectileAura:CreateToggle({
+		Name = 'Charge',
+		Default = true,
+		Tooltip = 'Charge projectiles that support charging for full power'
+	})
+	ChargeDuration = ProjectileAura:CreateSlider({
+		Name = 'Charge Time',
+		Min = 0.1,
+		Max = 2,
+		Default = 0.65,
+		Decimal = 100,
+		Tooltip = 'How long to charge (capped by projectile max charge)',
+		Suffix = function(val) return string.format('%.2fs', val) end
+	})
+	ProjectileAura:CreateButton({
+		Name = 'Add Held Item',
+		Function = function()
+			local tool = store.hand and store.hand.tool
+			if not tool then return end
+			local meta = bedwars.ItemMeta[tool.Name]
+			local ammo = tool.Name
+			if meta and meta.projectileSource and meta.projectileSource.ammoItemTypes and #meta.projectileSource.ammoItemTypes > 0 then
+				local ok, res = pcall(function() return meta.projectileSource.ammoItemTypes[1] end)
+				if ok and res then ammo = res end
+				local check = meta.projectileSource.ammoItemTypes[1]
+				for _, it in store.inventory.inventory.items do
+					if table.find(meta.projectileSource.ammoItemTypes, it.itemType) then ammo = it.itemType break end
+				end
+				if not check then ammo = tool.Name end
+			end
+			if not table.find(List.ListEnabled, ammo) then
+				List:ChangeValue(ammo)
+			end
+		end
+	})
+	ProjectileAura:CreateButton({
+		Name = 'Remove Held Item',
+		Function = function()
+			local tool = store.hand and store.hand.tool
+			if not tool then return end
+			local meta = bedwars.ItemMeta[tool.Name]
+			local ammo = tool.Name
+			if meta and meta.projectileSource and meta.projectileSource.ammoItemTypes and #meta.projectileSource.ammoItemTypes > 0 then
+				for _, it in store.inventory.inventory.items do
+					if table.find(meta.projectileSource.ammoItemTypes, it.itemType) then ammo = it.itemType break end
+				end
+				if ammo == tool.Name and meta.projectileSource.ammoItemTypes[1] then ammo = meta.projectileSource.ammoItemTypes[1] end
+			end
+			if table.find(List.ListEnabled, ammo) then
+				List:ChangeValue(ammo)
+			elseif table.find(List.ListEnabled, tool.Name) then
+				List:ChangeValue(tool.Name)
+			end
 		end
 	})
 	ToolCheck = ProjectileAura:CreateToggle({
