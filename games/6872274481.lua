@@ -3678,8 +3678,11 @@ run(function()
 							end
 						end
 	
-						local newlook = CFrame.new(offsetpos, plr[TargetPart.Value].Position) * CFrame.new(projmeta.projectile == 'owl_projectile' and Vector3.zero or Vector3.new(bedwars.BowConstantsTable.RelX, bedwars.BowConstantsTable.RelY, bedwars.BowConstantsTable.RelZ))
-						local calc = prediction.SolveTrajectory(newlook.p, projSpeed, gravity, plr[TargetPart.Value].Position, projmeta.projectile == 'telepearl' and Vector3.zero or plr[TargetPart.Value].Velocity, playerGravity, plr.HipHeight, plr.Jumping and 42.6 or nil, rayCheck)
+						local aimPos = prediction.GetAimPosition and prediction.GetAimPosition(plr, TargetPart.Value, offsetpos) or (plr[TargetPart.Value] and plr[TargetPart.Value].Position or plr.RootPart.Position)
+						local aimVel = (plr[TargetPart.Value] and plr[TargetPart.Value].Velocity or plr.RootPart.Velocity)
+						if TargetPart.Value == 'Legs' or TargetPart.Value == 'Feet' or TargetPart.Value == 'Closest' or TargetPart.Value == 'Random' or TargetPart.Value == 'UpperTorso' then aimVel = plr.RootPart.Velocity end
+						local newlook = CFrame.new(offsetpos, aimPos) * CFrame.new(projmeta.projectile == 'owl_projectile' and Vector3.zero or Vector3.new(bedwars.BowConstantsTable.RelX, bedwars.BowConstantsTable.RelY, bedwars.BowConstantsTable.RelZ))
+						local calc = prediction.SolveTrajectory(newlook.p, projSpeed, gravity, aimPos, projmeta.projectile == 'telepearl' and Vector3.zero or aimVel, playerGravity, plr.HipHeight, plr.Jumping and 42.6 or nil, rayCheck)
 						if calc then
 							targetinfo.Targets[plr] = tick() + 1
 							return {
@@ -3706,7 +3709,7 @@ run(function()
 	})
 	TargetPart = ProjectileAimbot:CreateDropdown({
 		Name = 'Part',
-		List = {'RootPart', 'Head'}
+		List = {'RootPart', 'Head', 'Legs', 'Feet', 'UpperTorso', 'Closest', 'Random'}
 	})
 	FOV = ProjectileAimbot:CreateSlider({
 		Name = 'FOV',
@@ -3729,6 +3732,7 @@ run(function()
 	local Targets
 	local Range
 	local CloseRange
+	local AimPart
 	local List
 	local ToolCheck
 	local Charge
@@ -3894,7 +3898,8 @@ run(function()
 	
 						if ent then
 							local pos = entitylib.character.RootPart.Position
-							local distToEnt = (ent.RootPart.Position - pos).Magnitude
+							local aimPosRaw = prediction.GetAimPosition and prediction.GetAimPosition(ent, AimPart.Value, pos) or ent.RootPart.Position
+							local distToEnt = (aimPosRaw - pos).Magnitude
 							for _, data in getProjectiles() do
 								local item, ammo, projectile, itemMeta, shootFp, shootTp, holdTp, holdFp = unpack(data)
 								if ToolCheck.Enabled and item.tool ~= store.hand.tool then
@@ -3931,7 +3936,12 @@ run(function()
 									end
 									local projSpeed = meta.launchVelocity * velocityMult
 									local gravity = meta.gravitationalAcceleration or 196.2
-									local calc = prediction.SolveTrajectory(pos, projSpeed, gravity, ent.RootPart.Position, ent.RootPart.Velocity, workspace.Gravity, ent.HipHeight, ent.Jumping and 42.6 or nil, rayCheck)
+									local targetVel = ent.RootPart.Velocity
+									if AimPart.Value == 'Legs' or AimPart.Value == 'Feet' or AimPart.Value == 'Closest' or AimPart.Value == 'Random' or AimPart.Value == 'UpperTorso' then targetVel = ent.RootPart.Velocity end
+									local calc = prediction.SolveTrajectory(pos, projSpeed, gravity, aimPosRaw, targetVel, workspace.Gravity, ent.HipHeight, ent.Jumping and 42.6 or nil, rayCheck)
+									if not calc and prediction.SolveTrajectoryWithAim then
+										calc = prediction.SolveTrajectoryWithAim(pos, projSpeed, gravity, ent, AimPart.Value, targetVel, workspace.Gravity, ent.HipHeight, ent.Jumping and 42.6 or nil, rayCheck)
+									end
 									if calc then
 										targetinfo.Targets[ent] = tick() + 1
 										local switched = switchItem(item.tool)
@@ -4115,6 +4125,12 @@ run(function()
 		Suffix = function(val)
 			return val == 1 and 'stud' or 'studs'
 		end
+	})
+	AimPart = ProjectileAura:CreateDropdown({
+		Name = 'Aim Part',
+		List = {'RootPart', 'Head', 'Legs', 'Feet', 'UpperTorso', 'Closest', 'Random'},
+		Default = 'RootPart',
+		Tooltip = 'Where to aim projectiles'
 	})
 	Charge = ProjectileAura:CreateToggle({
 		Name = 'Charge',
