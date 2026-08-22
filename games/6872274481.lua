@@ -4018,7 +4018,8 @@ run(function()
 											local dir, id = CFrame.lookAt(pos, calc).LookVector, httpService:GenerateGUID(true)
 											local shootPosition = (CFrame.new(pos, calc) * CFrame.new(Vector3.new(-bedwars.BowConstantsTable.RelX, -bedwars.BowConstantsTable.RelY, -bedwars.BowConstantsTable.RelZ))).Position
 											local vel = dir * projSpeed
-											bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPosition, id, vel, {drawDurationSeconds = chargeTime > 0 and chargeTime or 1})
+											local drawSec = chargeTime
+											bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPosition, id, vel, {drawDurationSeconds = drawSec})
 											local played = false
 											if shootFp and shootFp ~= 0 then
 												played = true
@@ -4032,9 +4033,23 @@ run(function()
 												pcall(function() bedwars.ViewmodelController:playAnimation(14, {fadeTime = 0.12}) end)
 												pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, 5) end)
 											end
-											local res = projectileRemote:InvokeServer(item.tool, ammo, projectile, shootPosition, pos, vel, id, {drawDurationSeconds = chargeTime > 0 and chargeTime or 1, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
+											local res = projectileRemote:InvokeServer(item.tool, ammo, projectile, shootPosition, pos, vel, id, {drawDurationSeconds = drawSec, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
 											if slowHandle then pcall(function() slowHandle:Destroy() end) for _, a in ipairs(chargeAnims) do pcall(function() a:Stop() end) end end
 											if not res then
+												pcall(function()
+													if bedwars.ProjectileController.destroyProjectile then
+														bedwars.ProjectileController:destroyProjectile(id)
+													elseif bedwars.ProjectileController.removeProjectile then
+														bedwars.ProjectileController:removeProjectile(id)
+													end
+												end)
+												pcall(function()
+													for _, v in ipairs(workspace:GetDescendants()) do
+														if v:GetAttribute('ProjectileId') == id or v:GetAttribute('RefId') == id then
+															v:Destroy()
+														end
+													end
+												end)
 												FireDelays[cooldownId] = tick() + (itemMeta.fireDelaySec or 0.5) * 0.5
 											else
 												local shoot = itemMeta.launchSound
