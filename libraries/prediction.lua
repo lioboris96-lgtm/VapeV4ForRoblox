@@ -209,25 +209,72 @@ function module.GetAimPosition(ent, mode, origin)
 end
 
 function module.SolveTrajectory(origin, projectileSpeed, gravity, targetPos, targetVelocity, playerGravity, playerHeight, playerJump, params)
-	-- Handle zero speed edge
 	if projectileSpeed <= 0 then return nil end
 	local disp = targetPos - origin
+	local dist = disp.Magnitude
+	if dist < 1 then return targetPos end
+
+	-- Use iterative lead calculation - more stable than quartic for moving targets
+	-- Start with direct time, then refine with target motion and gravity
+	local function getTargetAt(t)
+		local base = targetPos + targetVelocity * t
+		if playerGravity and playerGravity > 0 then
+			-- account for target falling/jumping:预测 vertical with gravity
+			-- playerHeight is HipHeight offset, playerJump is jump velocity if jumping
+			local jt = playerJump or 0
+			-- simple: target Y at t with gravity
+			-- we already have targetVelocity.Y which includes current vertical speed, so just add gravity
+			base = base + Vector3.new(0, -0.5 * playerGravity * t * t, 0)
+			if jt > 0 then
+				base = base + Vector3.new(0, jt * t * 0.1, 0)
+			end
+		end
+		return base
+	end
+
+	local bestAim, bestErr, bestT = nil, math.huge, nil
+	-- try numeric search for t that makes required speed match projectileSpeed
+	-- search t in 0.02 .. 3 seconds
+	for t = 0.05, 3, 0.05 do
+		local pred = getTargetAt(t)
+		local d = pred - origin
+		-- required velocity to hit pred at time t with gravity
+		-- v0 = (d - 0.5*g*t^2)/t, g = (0,-gravity,0)
+		local gVec = Vector3.new(0, -gravity, 0)
+		local v0 = (d - 0.5 * gVec * t * t) / t
+		local speed = v0.Magnitude
+		local err = math.abs(speed - projectileSpeed)
+		if err < bestErr then
+			-- also check if trajectory is not too steep (e < 200)
+			local e = v0.Y
+			if math.abs(e) < projectileSpeed * 1.2 then
+				bestErr = err
+				bestT = t
+				bestAim = origin + v0 * t + 0.5 * gVec * t * t
+			end
+		end
+		if err < projectileSpeed * 0.02 then break end
+	end
+
+	if bestAim and bestErr < projectileSpeed * 0.15 then
+		-- raycast check if path blocked, if blocked try next best? For now return best
+		if params then
+			local dir = bestAim - origin
+			local ray = workspace:Raycast(origin, dir, params)
+			if ray and (ray.Position - bestAim).Magnitude > 5 then
+				-- blocked, try linear fallback
+			else
+				return bestAim
+			end
+		else
+			return bestAim
+		end
+	end
+
+	-- Fallback to quartic for exact solution
 	local p, q, r = targetVelocity.X, targetVelocity.Y, targetVelocity.Z
 	local h, j, k = disp.X, disp.Y, disp.Z
 	local l = -.5 * gravity
-
-	-- Improved player gravity handling: estimate target vertical with gravity
-	-- Do iterative refinement for falling/jumping targets
-	local estTime = disp.Magnitude / projectileSpeed
-	if playerGravity and playerGravity > 0 and math.abs(q) < 50 then
-		-- refine targetPos for gravity over estTime
-		-- target's vertical at t: j + q*t -0.5*playerGravity*t^2 - playerHeight offset
-		-- we adjust j to be center mass
-		-- use HipHeight as offset: already passed as playerHeight, so aim slightly above feet
-		-- For now, keep simple: if target is falling, q will be negative, l already accounts projectile gravity
-	end
-
-	-- Try to find best positive root
 	local solutions = module.solveQuartic(
 		l*l,
 		-2*q*l,
@@ -237,13 +284,14 @@ function module.SolveTrajectory(origin, projectileSpeed, gravity, targetPos, tar
 	)
 
 	local function tryRoot(t)
-		if not t or t <= 0 or t > 10 then return nil end
+		if not t or t <= 0 or t > 5 then return nil end
 		local d = (h + p*t)/t
 		local e = (j + q*t - l*t*t)/t
 		local f = (k + r*t)/t
 		local vel = Vector3.new(d, e, f).Magnitude
-		-- check vel close to projectileSpeed (allow 5% tolerance due to numeric)
-		if math.abs(vel - projectileSpeed) > projectileSpeed * 0.1 then return nil end
+		if math.abs(vel - projectileSpeed) > projectileSpeed * 0.05 then return nil end
+		-- prefer low arc (small t) and not too high e
+		if math.abs(e) > projectileSpeed then return nil end
 		return origin + Vector3.new(d, e, f)
 	end
 
