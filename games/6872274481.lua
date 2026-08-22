@@ -8568,10 +8568,7 @@ run(function()
 	
 	local function attemptBreak(tab, localPosition)
 		if not tab then return end
-		local sorted = {}
-		for _, v in tab do table.insert(sorted, v) end
-		table.sort(sorted, function(a, b) return (a.Position - localPosition).Magnitude < (b.Position - localPosition).Magnitude end)
-		for _, v in sorted do
+		for _, v in tab do
 			if (v.Position - localPosition).Magnitude < Range.Value and bedwars.BlockController:isBlockBreakable({blockPosition = v.Position / 3}, lplr) then
 				if not SelfBreak.Enabled and v:GetAttribute('PlacedByUserId') == lplr.UserId then continue end
 				if (v:GetAttribute('BedShieldEndTime') or 0) > workspace:GetServerTimeNow() then continue end
