@@ -3853,7 +3853,7 @@ run(function()
 									rayCheck.FilterDescendantsInstances = {workspace.Map}
 									local meta = bedwars.ProjectileMeta[projectile]
 									if not meta then continue end
-									local isChargeable = itemMeta.maxStrengthChargeSec and itemMeta.maxStrengthChargeSec > 0
+									local isChargeable = itemMeta.maxStrengthChargeSec and itemMeta.maxStrengthChargeSec > 0 and item.itemType ~= 'mage_spellbook'
 									local shouldCharge = Charge.Enabled and isChargeable and distToEnt > CloseRange.Value
 									local chargeTime = 0
 									local velocityMult = 1
