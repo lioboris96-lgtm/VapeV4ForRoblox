@@ -3737,8 +3737,13 @@ run(function()
 	rayCheck.FilterType = Enum.RaycastFilterType.Include
 	local projectileRemote = {InvokeServer = function() end}
 	local FireDelays = {}
+	local CooldownController
 	task.spawn(function()
 		projectileRemote = bedwars.Client:Get(remotes.FireProjectile).instance
+		pcall(function()
+			local Knit = require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient
+			CooldownController = Knit.Controllers.CooldownController
+		end)
 	end)
 	
 	local function getAmmo(check)
@@ -3747,6 +3752,36 @@ run(function()
 				return item.itemType
 			end
 		end
+	end
+
+	local function getCooldownId(itemMeta, itemType)
+		return itemMeta.cooldownId or (itemType .. "-proj-source")
+	end
+
+	local function getHoldAnims(itemMeta, itemType)
+		if itemType == 'spear' or itemType == 'sand_spear' or itemType == 'harpoon' then
+			return {84}, {}
+		end
+		local tpDraw = itemMeta.thirdPerson and itemMeta.thirdPerson.drawAnimation
+		local fpDraw = itemMeta.firstPerson and itemMeta.firstPerson.drawAnimation
+		local holdTp, holdFp = {}, {}
+		if tpDraw and tpDraw ~= 0 then table.insert(holdTp, tpDraw) end
+		if fpDraw and fpDraw ~= 0 then table.insert(holdFp, fpDraw) end
+		return holdTp, holdFp
+	end
+
+	local function getShootAnims(itemMeta, itemType)
+		local fp = itemMeta.firstPerson and itemMeta.firstPerson.fireAnimation
+		local tp = itemMeta.thirdPerson and itemMeta.thirdPerson.fireAnimation
+		local hasFp = fp and fp ~= 0
+		local hasTp = tp and tp ~= 0
+		if hasFp or hasTp then
+			return hasFp and fp or nil, hasTp and tp or nil, true
+		end
+		if itemType == 'spear' or itemType == 'sand_spear' or itemType == 'harpoon' then
+			return nil, 82, true
+		end
+		return 14, 5, false
 	end
 	
 	local function getProjectiles()
@@ -3757,20 +3792,27 @@ run(function()
 			local proj = baseMeta.projectileSource
 			if proj then
 				local ammo = getAmmo(proj)
-				if ammo and table.find(List.ListEnabled, ammo) then
-					table.insert(items, {
-						item,
-						ammo,
-						proj.projectileType(ammo),
-						proj
-					})
-				elseif not proj.ammoItemTypes or #proj.ammoItemTypes == 0 then
-					if table.find(List.ListEnabled, item.itemType) then
+				local whitelisted = false
+				if ammo and table.find(List.ListEnabled, ammo) then whitelisted = true end
+				if not whitelisted and (not proj.ammoItemTypes or #proj.ammoItemTypes == 0) and table.find(List.ListEnabled, item.itemType) then
+					ammo = item.itemType
+					whitelisted = true
+				end
+				if whitelisted then
+					local ok, projType = pcall(function() return proj.projectileType(ammo) end)
+					if ok and projType then
+						local holdTp, holdFp = getHoldAnims(proj, item.itemType)
+						local shootFp, shootTp, hasCustom = getShootAnims(proj, item.itemType)
 						table.insert(items, {
 							item,
-							item.itemType,
-							proj.projectileType(item.itemType),
-							proj
+							ammo,
+							projType,
+							proj,
+							shootFp,
+							shootTp,
+							holdTp,
+							holdFp,
+							hasCustom
 						})
 					end
 				end
@@ -3793,7 +3835,9 @@ run(function()
 							local projType
 							pcall(function() projType = src.projectileType(nil) end)
 							if projType then
-								table.insert(items, {item, 'mage_spell', projType, src})
+								local holdTp, holdFp = getHoldAnims(src, item.itemType)
+								local shootFp, shootTp, hasCustom = getShootAnims(src, item.itemType)
+								table.insert(items, {item, 'mage_spell', projType, src, shootFp, shootTp, holdTp, holdFp, hasCustom})
 							end
 						end
 					end
@@ -3811,11 +3855,18 @@ run(function()
 								pcall(function() projType = src.projectileType(nil) end)
 							end
 							if projType then
+								local holdTp, holdFp = getHoldAnims(src, item.itemType)
+								local shootFp, shootTp, hasCustom = getShootAnims(src, item.itemType)
 								table.insert(items, {
 									item,
 									ammo or spellName,
 									projType,
-									src
+									src,
+									shootFp,
+									shootTp,
+									holdTp,
+									holdFp,
+									hasCustom
 								})
 								break
 							end
@@ -3845,18 +3896,22 @@ run(function()
 							local pos = entitylib.character.RootPart.Position
 							local distToEnt = (ent.RootPart.Position - pos).Magnitude
 							for _, data in getProjectiles() do
-								local item, ammo, projectile, itemMeta = unpack(data)
+								local item, ammo, projectile, itemMeta, shootFp, shootTp, holdTp, holdFp = unpack(data)
 								if ToolCheck.Enabled and item.tool ~= store.hand.tool then
 									continue
 								end
-								local cooldownId = itemMeta.cooldownId or (item.itemType .. "-proj-source")
+								local cooldownId = getCooldownId(itemMeta, item.itemType)
 								if (FireDelays[cooldownId] or 0) >= tick() then continue end
 								local onCd = false
-								pcall(function()
-									local Knit = require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient
-									local cd = Knit.Controllers.CooldownController
-									if cd and cd.isOnCooldown then onCd = cd:isOnCooldown(cooldownId) end
-								end)
+								if CooldownController and CooldownController.isOnCooldown then
+									pcall(function() onCd = CooldownController:isOnCooldown(cooldownId) end)
+								else
+									pcall(function()
+										local Knit = require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient
+										local cd = Knit.Controllers.CooldownController
+										if cd and cd.isOnCooldown then onCd = cd:isOnCooldown(cooldownId) end
+									end)
+								end
 								if onCd then continue end
 								rayCheck.FilterDescendantsInstances = {workspace.Map}
 								local meta = bedwars.ProjectileMeta[projectile]
@@ -3907,17 +3962,26 @@ run(function()
 													end
 												end)
 												pcall(function()
-													if item.itemType == 'spear' or item.itemType == 'sand_spear' or item.itemType == 'harpoon' then
-														local s = bedwars.GameAnimationUtil:playAnimation(lplr, 84)
-														if s then table.insert(chargeAnims, s) end
-														s.Stopped:Connect(function()
-															local idle = bedwars.GameAnimationUtil:playAnimation(lplr, 83, {looped = true})
-															if idle then table.insert(chargeAnims, idle) end
-														end)
+													if #holdTp > 0 or #holdFp > 0 then
+														for _, animId in ipairs(holdTp) do
+															local t = bedwars.GameAnimationUtil:playAnimation(lplr, animId)
+															if t then table.insert(chargeAnims, t) end
+														end
+														for _, animId in ipairs(holdFp) do
+															local vt = bedwars.ViewmodelController:playAnimation(animId, {fadeTime = 0.12})
+															if vt then table.insert(chargeAnims, vt) end
+														end
+														if item.itemType == 'spear' or item.itemType == 'sand_spear' or item.itemType == 'harpoon' then
+															if chargeAnims[1] then
+																chargeAnims[1].Stopped:Connect(function()
+																	local idle = bedwars.GameAnimationUtil:playAnimation(lplr, 83, {looped = true})
+																	if idle then table.insert(chargeAnims, idle) end
+																end)
+															end
+														end
 													else
-														local draw = itemMeta.thirdPerson and itemMeta.thirdPerson.drawAnimation
-														if draw and draw ~= 0 then
-															local t = bedwars.GameAnimationUtil:playAnimation(lplr, draw)
+														if itemMeta.thirdPerson and itemMeta.thirdPerson.drawAnimation and itemMeta.thirdPerson.drawAnimation ~= 0 then
+															local t = bedwars.GameAnimationUtil:playAnimation(lplr, itemMeta.thirdPerson.drawAnimation)
 															if t then table.insert(chargeAnims, t) end
 														end
 														local fpDraw = itemMeta.firstPerson and itemMeta.firstPerson.drawAnimation
@@ -3944,6 +4008,9 @@ run(function()
 														local aim = itemMeta.thirdPerson and itemMeta.thirdPerson.aimAnimation
 														if aim and aim ~= 0 then
 															bedwars.GameAnimationUtil:playAnimation(lplr, aim)
+														elseif #holdTp == 0 then
+															local holdAim = holdTp[2]
+															if holdAim then bedwars.GameAnimationUtil:playAnimation(lplr, holdAim) end
 														end
 													end
 												end)
@@ -3953,25 +4020,17 @@ run(function()
 											local vel = dir * projSpeed
 											bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPosition, id, vel, {drawDurationSeconds = chargeTime > 0 and chargeTime or 1})
 											local played = false
-											local fp = itemMeta.firstPerson and itemMeta.firstPerson.fireAnimation
-											if fp and fp ~= 0 then
+											if shootFp and shootFp ~= 0 then
 												played = true
-												pcall(function() bedwars.ViewmodelController:playAnimation(fp, {fadeTime = 0.12}) end)
+												pcall(function() bedwars.ViewmodelController:playAnimation(shootFp, {fadeTime = 0.12}) end)
 											end
-											local tp = itemMeta.thirdPerson and itemMeta.thirdPerson.fireAnimation
-											if tp and tp ~= 0 then
+											if shootTp and shootTp ~= 0 then
 												played = true
-												pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, tp) end)
+												pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, shootTp) end)
 											end
 											if not played then
-												if item.itemType == 'spear' or item.itemType == 'sand_spear' or item.itemType == 'harpoon' then
-													played = true
-													pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, 82) end)
-													pcall(function() bedwars.SoundManager:playSound(bedwars.GameSound and bedwars.GameSound.SPEAR_THROW or nil) end)
-												else
-													pcall(function() bedwars.ViewmodelController:playAnimation(14, {fadeTime = 0.12}) end)
-													pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, 5) end)
-												end
+												pcall(function() bedwars.ViewmodelController:playAnimation(14, {fadeTime = 0.12}) end)
+												pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, 5) end)
 											end
 											local res = projectileRemote:InvokeServer(item.tool, ammo, projectile, shootPosition, pos, vel, id, {drawDurationSeconds = chargeTime > 0 and chargeTime or 1, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
 											if slowHandle then pcall(function() slowHandle:Destroy() end) for _, a in ipairs(chargeAnims) do pcall(function() a:Stop() end) end end
