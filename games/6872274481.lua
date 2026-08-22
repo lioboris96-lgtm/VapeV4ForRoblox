@@ -3940,38 +3940,27 @@ run(function()
 											local slowHandle
 											local chargeAnims = {}
 											if shouldCharge and chargeTime > 0 then
-												local mult = itemMeta.walkSpeedMultiplier
-												if not mult or mult == 1 or mult == 0 then
-													local m = bedwars.ProjectileMeta[projectile]
-													if m and m.getProjectileOverridesFunction then
-														local ok, ov = pcall(function() return m.getProjectileOverridesFunction(lplr) end)
-														if ok and ov and ov.walkSpeedMultiplierOverride and ov.walkSpeedMultiplierOverride ~= 1 and ov.walkSpeedMultiplierOverride ~= 0 then
-															mult = ov.walkSpeedMultiplierOverride
+												pcall(function()
+													local mult = itemMeta.walkSpeedMultiplier
+													if not mult or mult == 1 or mult == 0 then
+														local m = bedwars.ProjectileMeta[projectile]
+														if m and m.getProjectileOverridesFunction then
+															local ov = m.getProjectileOverridesFunction(lplr)
+															if ov and ov.walkSpeedMultiplierOverride and ov.walkSpeedMultiplierOverride ~= 1 then
+																mult = ov.walkSpeedMultiplierOverride
+															end
 														end
 													end
-												end
-												mult = mult or 0.35
-												local sc = bedwars.SprintController or CooldownController and CooldownController or nil
-												if not sc or not sc.getMovementStatusModifier then
-													pcall(function()
+													mult = mult or 0.35
+													local sc = bedwars.SprintController
+													if not sc then
 														local Knit = require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient
 														sc = Knit.Controllers.SprintController
-													end)
-												end
-												if sc and sc.getMovementStatusModifier then
-													local ok, handle = pcall(function() return sc:getMovementStatusModifier():addModifier({blockSprint = true, moveSpeedMultiplier = mult}) end)
-													if ok and handle then slowHandle = handle end
-												end
-												if not slowHandle then
-													pcall(function()
-														local hum = entitylib.character.Humanoid
-														if hum then
-															local orig = hum.WalkSpeed
-															hum.WalkSpeed = orig * mult
-															slowHandle = {Destroy = function() pcall(function() if hum.Parent then hum.WalkSpeed = orig end end) end}
-														end
-													end)
-												end
+													end
+													if sc and sc.getMovementStatusModifier then
+														slowHandle = sc:getMovementStatusModifier():addModifier({blockSprint = true, moveSpeedMultiplier = mult})
+													end
+												end)
 												pcall(function()
 													if #holdTp > 0 or #holdFp > 0 then
 														for _, animId in ipairs(holdTp) do
