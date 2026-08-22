@@ -1008,6 +1008,12 @@ run(function()
 			table.insert(candidates, {distances[node], node, cells})
 		end
 		table.sort(candidates, function(a, b)
+			if not solidonly then
+				local da = (a[2] - origin).Magnitude
+				local db = (b[2] - origin).Magnitude
+				if da == db then return a[1] < b[1] end
+				return da < db
+			end
 			if a[1] == b[1] then
 				return (a[2] - origin).Magnitude < (b[2] - origin).Magnitude
 			end
