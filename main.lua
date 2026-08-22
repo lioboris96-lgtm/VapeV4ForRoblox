@@ -31,8 +31,11 @@ local playersService = cloneref(game:GetService('Players'))
 
 local function downloadFile(path, func)
 	if not isfile(path) then
+		local commit = 'main'
+		pcall(function() commit = readfile('newvape/profiles/commit.txt') end)
+		if not commit or commit == '' then commit = 'main' end
 		local suc, res = pcall(function()
-			return game:HttpGet('https://raw.githubusercontent.com/lioboris96-lgtm/VapeV4ForRoblox/'..readfile('newvape/profiles/commit.txt')..'/'..select(1, path:gsub('newvape/', '')), true)
+			return game:HttpGet('https://raw.githubusercontent.com/lioboris96-lgtm/VapeV4ForRoblox/'..commit..'/'..select(1, path:gsub('newvape/', '')), true)
 		end)
 		if not suc or res == '404: Not Found' then
 			error(res)
@@ -55,7 +58,7 @@ local function finishLoading()
 		until not vape.Loaded
 	end)
 
-	local teleportedServers
+		local teleportedServers
 	vape:Clean(playersService.LocalPlayer.OnTeleport:Connect(function()
 		if (not teleportedServers) and (not shared.VapeIndependent) then
 			teleportedServers = true
@@ -64,7 +67,8 @@ local function finishLoading()
 				if shared.VapeDeveloper then
 					loadstring(readfile('newvape/loader.lua'), 'loader')()
 				else
-					loadstring(game:HttpGet('https://raw.githubusercontent.com/lioboris96-lgtm/VapeV4ForRoblox/'..readfile('newvape/profiles/commit.txt')..'/loader.lua', true), 'loader')()
+					local c='main' pcall(function() c=readfile('newvape/profiles/commit.txt') end) if not c or c=='' then c='main' end
+					loadstring(game:HttpGet('https://raw.githubusercontent.com/lioboris96-lgtm/VapeV4ForRoblox/'..c..'/loader.lua', true), 'loader')()
 				end
 			]]
 			if shared.VapeDeveloper then
@@ -106,8 +110,11 @@ if not shared.VapeIndependent then
 		loadstring(readfile('newvape/games/'..game.PlaceId..'.lua'), tostring(game.PlaceId))(...)
 	else
 		if not shared.VapeDeveloper then
+			local commit = 'main'
+			pcall(function() commit = readfile('newvape/profiles/commit.txt') end)
+			if not commit or commit == '' then commit = 'main' end
 			local suc, res = pcall(function()
-				return game:HttpGet('https://raw.githubusercontent.com/lioboris96-lgtm/VapeV4ForRoblox/'..readfile('newvape/profiles/commit.txt')..'/games/'..game.PlaceId..'.lua', true)
+				return game:HttpGet('https://raw.githubusercontent.com/lioboris96-lgtm/VapeV4ForRoblox/'..commit..'/games/'..game.PlaceId..'.lua', true)
 			end)
 			if suc and res ~= '404: Not Found' then
 				if setthreadidentity then setthreadidentity(8) end

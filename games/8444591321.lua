@@ -14,8 +14,11 @@ local isfile = isfile or function(file)
 end
 local function downloadFile(path, func)
 	if not isfile(path) then
+		local commit = 'main'
+		pcall(function() commit = readfile('newvape/profiles/commit.txt') end)
+		if not commit or commit == '' then commit = 'main' end
 		local suc, res = pcall(function() 
-			return game:HttpGet('https://raw.githubusercontent.com/lioboris96-lgtm/VapeV4ForRoblox/'..readfile('newvape/profiles/commit.txt')..'/'..select(1, path:gsub('newvape/', '')), true) 
+			return game:HttpGet('https://raw.githubusercontent.com/lioboris96-lgtm/VapeV4ForRoblox/'..commit..'/'..select(1, path:gsub('newvape/', '')), true) 
 		end)
 		if not suc or res == '404: Not Found' then 
 			error(res) 
@@ -33,8 +36,11 @@ if isfile('newvape/games/'..vape.Place..'.lua') then
 	loadstring(readfile('newvape/games/'..vape.Place..'.lua'), 'bedwars')()
 else
 	if not shared.VapeDeveloper then
+		local commit = 'main'
+		pcall(function() commit = readfile('newvape/profiles/commit.txt') end)
+		if not commit or commit == '' then commit = 'main' end
 		local suc, res = pcall(function() 
-			return game:HttpGet('https://raw.githubusercontent.com/lioboris96-lgtm/VapeV4ForRoblox/'..readfile('newvape/profiles/commit.txt')..'/games/'..vape.Place..'.lua', true) 
+			return game:HttpGet('https://raw.githubusercontent.com/lioboris96-lgtm/VapeV4ForRoblox/'..commit..'/games/'..vape.Place..'.lua', true) 
 		end)
 		if suc and res ~= '404: Not Found' then
 			loadstring(downloadFile('newvape/games/'..vape.Place..'.lua'), 'bedwars')()
