@@ -3878,7 +3878,17 @@ run(function()
 											local chargeAnims = {}
 											if shouldCharge and chargeTime > 0 then
 												pcall(function()
-													local mult = itemMeta.walkSpeedMultiplier or 0.35
+													local mult = itemMeta.walkSpeedMultiplier
+													if not mult or mult == 1 or mult == 0 then
+														local m = bedwars.ProjectileMeta[projectile]
+														if m and m.getProjectileOverridesFunction then
+															local ov = m.getProjectileOverridesFunction(lplr)
+															if ov and ov.walkSpeedMultiplierOverride and ov.walkSpeedMultiplierOverride ~= 1 then
+																mult = ov.walkSpeedMultiplierOverride
+															end
+														end
+													end
+													mult = mult or 0.35
 													local sc = bedwars.SprintController
 													if not sc then
 														local Knit = require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient
@@ -3958,7 +3968,7 @@ run(function()
 											local res = projectileRemote:InvokeServer(item.tool, ammo, projectile, shootPosition, pos, vel, id, {drawDurationSeconds = chargeTime > 0 and chargeTime or 1, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
 											if slowHandle then pcall(function() slowHandle:Destroy() end) for _, a in ipairs(chargeAnims) do pcall(function() a:Stop() end) end end
 											if not res then
-												FireDelays[item.itemType] = tick()
+												FireDelays[item.itemType] = tick() + (itemMeta.fireDelaySec or 0.5) * 0.5
 											else
 												local shoot = itemMeta.launchSound
 												shoot = shoot and shoot[math.random(1, #shoot)] or nil
@@ -3968,10 +3978,24 @@ run(function()
 											end
 										end)
 	
-										FireDelays[item.itemType] = tick() + itemMeta.fireDelaySec + (shouldCharge and chargeTime or 0)
+										local cooldown = itemMeta.fireDelaySec or 0.5
+										pcall(function()
+											local ev = bedwars.Client and bedwars.Client:Get('ProjectileCooldownModifierCheck')
+											if ev then cooldown = ev:CallServer({cooldown = cooldown}).cooldown or cooldown end
+										end)
+										pcall(function()
+											local Knit = require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient
+											local cd = Knit.Controllers.CooldownController or require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient.Controllers.CooldownController
+											if cd then
+												local id = (itemMeta.cooldownBar and item.itemType or item.itemType) or item.itemType
+												cd:setOnCooldown(id, cooldown + (shouldCharge and chargeTime or 0))
+											end
+										end)
+										FireDelays[item.itemType] = tick() + cooldown + (shouldCharge and chargeTime or 0)
 										if switched then
 											task.wait(0.05)
 										end
+										break
 									end
 								end
 							end
