@@ -3849,10 +3849,18 @@ run(function()
 								if ToolCheck.Enabled and item.tool ~= store.hand.tool then
 									continue
 								end
-								if (FireDelays[item.itemType] or 0) < tick() then
-									rayCheck.FilterDescendantsInstances = {workspace.Map}
-									local meta = bedwars.ProjectileMeta[projectile]
-									if not meta then continue end
+								local cooldownId = itemMeta.cooldownId or (item.itemType .. "-proj-source")
+								if (FireDelays[cooldownId] or 0) >= tick() then continue end
+								local onCd = false
+								pcall(function()
+									local Knit = require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient
+									local cd = Knit.Controllers.CooldownController
+									if cd and cd.isOnCooldown then onCd = cd:isOnCooldown(cooldownId) end
+								end)
+								if onCd then continue end
+								rayCheck.FilterDescendantsInstances = {workspace.Map}
+								local meta = bedwars.ProjectileMeta[projectile]
+								if not meta then continue end
 									local isChargeable = itemMeta.maxStrengthChargeSec and itemMeta.maxStrengthChargeSec > 0 and item.itemType ~= 'mage_spellbook'
 									local shouldCharge = Charge.Enabled and isChargeable and distToEnt > CloseRange.Value
 									local chargeTime = 0
@@ -3968,7 +3976,7 @@ run(function()
 											local res = projectileRemote:InvokeServer(item.tool, ammo, projectile, shootPosition, pos, vel, id, {drawDurationSeconds = chargeTime > 0 and chargeTime or 1, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
 											if slowHandle then pcall(function() slowHandle:Destroy() end) for _, a in ipairs(chargeAnims) do pcall(function() a:Stop() end) end end
 											if not res then
-												FireDelays[item.itemType] = tick() + (itemMeta.fireDelaySec or 0.5) * 0.5
+												FireDelays[cooldownId] = tick() + (itemMeta.fireDelaySec or 0.5) * 0.5
 											else
 												local shoot = itemMeta.launchSound
 												shoot = shoot and shoot[math.random(1, #shoot)] or nil
@@ -3980,18 +3988,19 @@ run(function()
 	
 										local cooldown = itemMeta.fireDelaySec or 0.5
 										pcall(function()
+											local ok, res = pcall(function() return bedwars.Client:Get(remotes.ProjectileCooldown or 'ProjectileCooldownModifierCheck') end)
+											if ok and res and res.CallServer then cooldown = res:CallServer({cooldown = cooldown}).cooldown or cooldown end
 											local ev = bedwars.Client and bedwars.Client:Get('ProjectileCooldownModifierCheck')
-											if ev then cooldown = ev:CallServer({cooldown = cooldown}).cooldown or cooldown end
+											if ev and ev.CallServer then cooldown = ev:CallServer({cooldown = cooldown}).cooldown or cooldown end
 										end)
 										pcall(function()
 											local Knit = require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient
-											local cd = Knit.Controllers.CooldownController or require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient.Controllers.CooldownController
-											if cd then
-												local id = (itemMeta.cooldownBar and item.itemType or item.itemType) or item.itemType
-												cd:setOnCooldown(id, cooldown + (shouldCharge and chargeTime or 0))
+											local cd = Knit.Controllers.CooldownController
+											if cd and cd.setOnCooldown then
+												cd:setOnCooldown(cooldownId, cooldown + (shouldCharge and chargeTime or 0))
 											end
 										end)
-										FireDelays[item.itemType] = tick() + cooldown + (shouldCharge and chargeTime or 0)
+										FireDelays[cooldownId] = tick() + cooldown + (shouldCharge and chargeTime or 0)
 										if switched then
 											task.wait(0.05)
 										end
