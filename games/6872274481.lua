@@ -8486,6 +8486,7 @@ run(function()
 	local Wallcheck
 	local AutoTool
 	local customlist, parts = {}, {}
+	local legitCache = nil
 	
 	local function customHealthbar(self, blockRef, health, maxHealth, changeHealth, block)
 		if block:GetAttribute('NoHealthbar') then return end
@@ -8590,6 +8591,61 @@ run(function()
 	
 	local function attemptBreak(tab, localPosition)
 		if not tab then return end
+		if Wallcheck.Enabled then
+			if legitCache and table.find(tab, legitCache) then
+				local v = legitCache
+				if (v.Position - localPosition).Magnitude < Range.Value and bedwars.BlockController:isBlockBreakable({blockPosition = v.Position / 3}, lplr) and (SelfBreak.Enabled or v:GetAttribute('PlacedByUserId') ~= lplr.UserId) and (v:GetAttribute('BedShieldEndTime') or 0) <= workspace:GetServerTimeNow() and (not LimitItem.Enabled or (store.hand.tool and bedwars.ItemMeta[store.hand.tool.Name].breakBlock)) then
+					hit += 1
+					local target, path, endpos = bedwars.breakBlock(v, Effect.Enabled, Animation.Enabled, CustomHealth.Enabled and customHealthbar or nil, AutoTool.Enabled, Wallcheck.Enabled, breakmethods[Mode.Value])
+					if path then
+						local currentnode = target
+						for _, part in parts do
+							part.Position = currentnode or Vector3.zero
+							if currentnode then
+								part.BoxHandleAdornment.Color3 = currentnode == endpos and Color3.new(1, 0.2, 0.2) or currentnode == target and Color3.new(0.2, 0.2, 1) or Color3.new(0.2, 1, 0.2)
+							end
+							currentnode = path[currentnode]
+						end
+					end
+					task.wait(InstantBreak.Enabled and (store.damageBlockFail > tick() and 4.5 or 0) or BreakSpeed.Value)
+					return true
+				else
+					legitCache = nil
+				end
+			end
+			local closest, cdist = nil, math.huge
+			for _, v in tab do
+				if (v.Position - localPosition).Magnitude >= Range.Value then continue end
+				if not bedwars.BlockController:isBlockBreakable({blockPosition = v.Position / 3}, lplr) then continue end
+				if not SelfBreak.Enabled and v:GetAttribute('PlacedByUserId') == lplr.UserId then continue end
+				if (v:GetAttribute('BedShieldEndTime') or 0) > workspace:GetServerTimeNow() then continue end
+				if LimitItem.Enabled and not (store.hand.tool and bedwars.ItemMeta[store.hand.tool.Name].breakBlock) then continue end
+				local d = (v.Position - localPosition).Magnitude
+				if d < cdist then
+					closest = v
+					cdist = d
+				end
+			end
+			if closest then
+				legitCache = closest
+				hit += 1
+				local target, path, endpos = bedwars.breakBlock(closest, Effect.Enabled, Animation.Enabled, CustomHealth.Enabled and customHealthbar or nil, AutoTool.Enabled, Wallcheck.Enabled, breakmethods[Mode.Value])
+				if path then
+					local currentnode = target
+					for _, part in parts do
+						part.Position = currentnode or Vector3.zero
+						if currentnode then
+							part.BoxHandleAdornment.Color3 = currentnode == endpos and Color3.new(1, 0.2, 0.2) or currentnode == target and Color3.new(0.2, 0.2, 1) or Color3.new(0.2, 1, 0.2)
+						end
+						currentnode = path[currentnode]
+					end
+				end
+				task.wait(InstantBreak.Enabled and (store.damageBlockFail > tick() and 4.5 or 0) or BreakSpeed.Value)
+				return true
+			end
+			legitCache = nil
+			return false
+		end
 		for _, v in tab do
 			if (v.Position - localPosition).Magnitude < Range.Value and bedwars.BlockController:isBlockBreakable({blockPosition = v.Position / 3}, lplr) then
 				if not SelfBreak.Enabled and v:GetAttribute('PlacedByUserId') == lplr.UserId then continue end
