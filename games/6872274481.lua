@@ -3752,15 +3752,52 @@ run(function()
 	local function getProjectiles()
 		local items = {}
 		for _, item in store.inventory.inventory.items do
-			local proj = bedwars.ItemMeta[item.itemType].projectileSource
-			local ammo = proj and getAmmo(proj)
-			if ammo and table.find(List.ListEnabled, ammo) then
-				table.insert(items, {
-					item,
-					ammo,
-					proj.projectileType(ammo),
-					proj
-				})
+			local baseMeta = bedwars.ItemMeta[item.itemType]
+			if not baseMeta then continue end
+			local proj = baseMeta.projectileSource
+			if proj then
+				local ammo = getAmmo(proj)
+				if ammo and table.find(List.ListEnabled, ammo) then
+					table.insert(items, {
+						item,
+						ammo,
+						proj.projectileType(ammo),
+						proj
+					})
+				elseif not proj.ammoItemTypes or #proj.ammoItemTypes == 0 then
+					if table.find(List.ListEnabled, item.itemType) then
+						table.insert(items, {
+							item,
+							item.itemType,
+							proj.projectileType(item.itemType),
+							proj
+						})
+					end
+				end
+			end
+			if baseMeta.multiProjectileSource then
+				for spellName, src in pairs(baseMeta.multiProjectileSource) do
+					local ammo = nil
+					if src.ammoItemTypes and #src.ammoItemTypes > 0 then
+						ammo = getAmmo(src)
+					end
+					local whitelisted = table.find(List.ListEnabled, spellName) or table.find(List.ListEnabled, item.itemType) or (ammo and table.find(List.ListEnabled, ammo))
+					if whitelisted then
+						local projType
+						pcall(function() projType = src.projectileType(ammo or spellName) end)
+						if not projType then
+							pcall(function() projType = src.projectileType(nil) end)
+						end
+						if projType then
+							table.insert(items, {
+								item,
+								ammo or spellName,
+								projType,
+								src
+							})
+						end
+					end
+				end
 			end
 		end
 		return items
@@ -3814,6 +3851,7 @@ run(function()
 	
 										task.spawn(function()
 											local slowHandle
+											local chargeAnims = {}
 											if shouldCharge and chargeTime > 0 then
 												pcall(function()
 													local mult = itemMeta.walkSpeedMultiplier or 0.35
@@ -3826,28 +3864,58 @@ run(function()
 														slowHandle = sc:getMovementStatusModifier():addModifier({blockSprint = true, moveSpeedMultiplier = mult})
 													end
 												end)
-												if itemMeta.chargeBeginSound then
-													pcall(function()
+												pcall(function()
+													local draw = itemMeta.thirdPerson and itemMeta.thirdPerson.drawAnimation
+													if draw and draw ~= 0 then
+														local t = bedwars.GameAnimationUtil:playAnimation(lplr, draw)
+														if t then table.insert(chargeAnims, t) end
+													end
+													local fpDraw = itemMeta.firstPerson and itemMeta.firstPerson.drawAnimation
+													if fpDraw and fpDraw ~= 0 then
+														local vt = bedwars.ViewmodelController:playAnimation(fpDraw, {fadeTime = 0.12})
+														if vt then table.insert(chargeAnims, vt) end
+													end
+													if itemMeta.chargeBeginSound then
 														local snd = itemMeta.chargeBeginSound[math.random(1, #itemMeta.chargeBeginSound)]
 														if snd then bedwars.SoundManager:playSound(snd) end
-													end)
-												end
+													else
+														local bowDrawSound = itemMeta.drawSound
+														if bowDrawSound then
+															local s = bowDrawSound[math.random(1, #bowDrawSound)]
+															if s then bedwars.SoundManager:playSound(s) end
+														end
+													end
+												end)
 												task.wait(chargeTime)
+												pcall(function()
+													for _, a in ipairs(chargeAnims) do pcall(function() a:Stop() end) end
+													local aim = itemMeta.thirdPerson and itemMeta.thirdPerson.aimAnimation
+													if aim and aim ~= 0 then
+														bedwars.GameAnimationUtil:playAnimation(lplr, aim)
+													end
+												end)
 											end
 											local dir, id = CFrame.lookAt(pos, calc).LookVector, httpService:GenerateGUID(true)
 											local shootPosition = (CFrame.new(pos, calc) * CFrame.new(Vector3.new(-bedwars.BowConstantsTable.RelX, -bedwars.BowConstantsTable.RelY, -bedwars.BowConstantsTable.RelZ))).Position
 											local vel = dir * projSpeed
 											bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPosition, id, vel, {drawDurationSeconds = chargeTime > 0 and chargeTime or 1})
+											local played = false
 											local fp = itemMeta.firstPerson and itemMeta.firstPerson.fireAnimation
 											if fp and fp ~= 0 then
+												played = true
 												pcall(function() bedwars.ViewmodelController:playAnimation(fp, {fadeTime = 0.12}) end)
 											end
 											local tp = itemMeta.thirdPerson and itemMeta.thirdPerson.fireAnimation
 											if tp and tp ~= 0 then
+												played = true
 												pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, tp) end)
 											end
+											if not played then
+												pcall(function() bedwars.ViewmodelController:playAnimation(14, {fadeTime = 0.12}) end)
+												pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, 5) end)
+											end
 											local res = projectileRemote:InvokeServer(item.tool, ammo, projectile, shootPosition, pos, vel, id, {drawDurationSeconds = chargeTime > 0 and chargeTime or 1, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
-											if slowHandle then pcall(function() slowHandle:Destroy() end) end
+											if slowHandle then pcall(function() slowHandle:Destroy() end) for _, a in ipairs(chargeAnims) do pcall(function() a:Stop() end) end end
 											if not res then
 												FireDelays[item.itemType] = tick()
 											else
