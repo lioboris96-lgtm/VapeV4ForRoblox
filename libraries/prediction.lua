@@ -231,36 +231,51 @@ function module.SolveTrajectory(origin, projectileSpeed, gravity, targetPos, tar
 	end
 
 	local bestAim, bestErr, bestT = nil, math.huge, nil
-	-- try numeric search for t that makes required speed match projectileSpeed
-	-- search t in 0.02 .. 3 seconds
-	for t = 0.05, 3, 0.05 do
+	local candidates = {}
+	-- adaptive maxT based on distance
+	local maxT = math.clamp(dist / math.max(projectileSpeed, 30) * 1.8, 0.4, 3)
+	local step = dist < 25 and 0.02 or 0.05
+	for t = 0.05, maxT, step do
 		local pred = getTargetAt(t)
 		local d = pred - origin
-		-- required velocity to hit pred at time t with gravity
-		-- v0 = (d - 0.5*g*t^2)/t, g = (0,-gravity,0)
 		local gVec = Vector3.new(0, -gravity, 0)
 		local v0 = (d - 0.5 * gVec * t * t) / t
 		local speed = v0.Magnitude
 		local err = math.abs(speed - projectileSpeed)
+		if err < projectileSpeed * 0.08 then
+			table.insert(candidates, {t=t, err=err, aim=origin + v0 * t + 0.5 * gVec * t * t, v0=v0})
+		end
 		if err < bestErr then
-			-- also check if trajectory is not too steep (e < 200)
 			local e = v0.Y
-			if math.abs(e) < projectileSpeed * 1.2 then
+			if math.abs(e) < projectileSpeed * 1.4 then
 				bestErr = err
 				bestT = t
 				bestAim = origin + v0 * t + 0.5 * gVec * t * t
 			end
 		end
-		if err < projectileSpeed * 0.02 then break end
 	end
-
-	if bestAim and bestErr < projectileSpeed * 0.15 then
-		-- raycast check if path blocked, if blocked try next best? For now return best
+	-- prefer smallest t among good candidates (low arc) to avoid over-lead at steep angles
+	table.sort(candidates, function(a,b) return a.t < b.t end)
+	for _, c in ipairs(candidates) do
+		if params then
+			local dir = c.aim - origin
+			local ray = workspace:Raycast(origin, dir, params)
+			if ray and (ray.Position - c.aim).Magnitude > 4 then
+				continue
+			end
+		end
+		-- also check angle not too steep for close targets
+		local angle = math.deg(math.asin(c.v0.Y / projectileSpeed))
+		if dist < 30 and math.abs(angle) > 65 then
+			continue
+		end
+		return c.aim
+	end
+	if bestAim and bestErr < projectileSpeed * 0.12 then
 		if params then
 			local dir = bestAim - origin
 			local ray = workspace:Raycast(origin, dir, params)
 			if ray and (ray.Position - bestAim).Magnitude > 5 then
-				-- blocked, try linear fallback
 			else
 				return bestAim
 			end
