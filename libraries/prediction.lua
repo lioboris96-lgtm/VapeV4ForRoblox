@@ -219,15 +219,7 @@ function module.SolveTrajectory(origin, projectileSpeed, gravity, targetPos, tar
 	local function getTargetAt(t)
 		local base = targetPos + targetVelocity * t
 		if playerGravity and playerGravity > 0 then
-			-- account for target falling/jumping:预测 vertical with gravity
-			-- playerHeight is HipHeight offset, playerJump is jump velocity if jumping
-			local jt = playerJump or 0
-			-- simple: target Y at t with gravity
-			-- we already have targetVelocity.Y which includes current vertical speed, so just add gravity
 			base = base + Vector3.new(0, -0.5 * playerGravity * t * t, 0)
-			if jt > 0 then
-				base = base + Vector3.new(0, jt * t * 0.1, 0)
-			end
 		end
 		return base
 	end
