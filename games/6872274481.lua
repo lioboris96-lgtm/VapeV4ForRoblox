@@ -1699,7 +1699,7 @@ run(function()
 											pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, 5) end)
 										end
 									end
-									local res = AutoClickerProjectileRemote:InvokeServer(curTool.tool, ammo, projectile, shootPos, origin, dir * projSpeed, id, {drawDurationSeconds = chargeTime > 0 and chargeTime or 0.1, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
+									local res = AutoClickerProjectileRemote:InvokeServer(curTool, ammo, projectile, shootPos, origin, dir * projSpeed, id, {drawDurationSeconds = chargeTime > 0 and chargeTime or 0.1, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
 									if not res then
 										AutoClickerFireDelays[cooldownId] = tick() + 0.2
 									else
@@ -1943,7 +1943,7 @@ run(function()
             shopId = shopId
         }):andThen(function(suc)
             if not suc then return end
-            bedwars.SoundManager:playSound(bedwars.SoundList.BEDWARS_PURCHASE_ITEM)
+            pcall(function() bedwars.SoundManager:playSound(bedwars.SoundList.BEDWARS_PURCHASE_ITEM) end)
             bedwars.Store:dispatch({
                 type = 'BedwarsAddItemPurchased',
                 itemType = itemType
