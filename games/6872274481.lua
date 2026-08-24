@@ -1624,13 +1624,15 @@ run(function()
 		end
 
 		Thread = task.spawn(function()
-			local lastTool = nil
+			local lastTool = store.hand and store.hand.tool and store.hand.tool.Name or nil
+			local initialTool = lastTool
 			repeat
 					if not bedwars.AppController or not bedwars.AppController:isLayerOpen(bedwars.UILayers.MAIN) then
 					local curTool = store.hand and store.hand.tool
 					local curToolName = curTool and curTool.Name or nil
 					local curType = store.hand and store.hand.toolType or nil
-					if curToolName ~= lastTool then
+					local justSwitched = curToolName ~= lastTool
+					if justSwitched then
 						lastTool = curToolName
 					end
 					local blockPlacer = bedwars.BlockPlacementController.blockPlacer
@@ -1641,7 +1643,7 @@ run(function()
 								task.spawn(blockPlacer.placeBlock, blockPlacer, mouseinfo.placementPosition)
 							end
 						end
-					elseif curToolName and isWhitelistedProjectile(curToolName) then
+					elseif curToolName and isWhitelistedProjectile(curToolName) and justSwitched then
 						local projSrc, ammoType = getProjectileForTool(curToolName)
 						if projSrc then
 							local ammo = nil
@@ -1657,7 +1659,9 @@ run(function()
 								ammo = curToolName
 							end
 							local cooldownId = projSrc.cooldownId or (curToolName .. "-proj-source")
-							if (AutoClickerFireDelays[cooldownId] or 0) < tick() then
+							-- allow immediate fire on switch, wait a tick for tool to equip
+							if justSwitched then task.wait(0.06) end
+							if justSwitched or (AutoClickerFireDelays[cooldownId] or 0) < tick() then
 								local isChargeable = projSrc.maxStrengthChargeSec and projSrc.maxStrengthChargeSec > 0
 								local chargeTime = 0
 								if isChargeable then
