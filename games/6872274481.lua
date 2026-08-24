@@ -1671,8 +1671,38 @@ run(function()
 									local dir = cam and cam.CFrame.LookVector or Vector3.new(0,0,-1)
 									local projSpeed = meta.launchVelocity
 									local aimPart = AutoClickerAimPart and AutoClickerAimPart.Value or 'Head'
+									local useAimbot = false
+									pcall(function()
+										for _, cat in pairs(vape.Categories) do
+											for _, mod in pairs(cat.Modules or {}) do
+												if mod.Name == 'ProjectileAimbot' and mod.Enabled then
+													useAimbot = true
+													if mod.Options and mod.Options['Part'] and mod.Options['Part'].Value then
+														aimPart = mod.Options['Part'].Value
+													end
+													break
+												end
+											end
+											if useAimbot then break end
+										end
+									end)
 									local ent = entitylib.EntityPosition({Part = aimPart, Range = 50, Players = true, NPCs = true, Wallcheck = false})
 									if not ent and aimPart ~= 'Head' then ent = entitylib.EntityPosition({Part = 'Head', Range = 50, Players = true, NPCs = true}) end
+									if not ent then
+										pcall(function()
+											for _, cat in pairs(vape.Categories) do
+												for _, mod in pairs(cat.Modules or {}) do
+													if mod.Name == 'ProjectileAimbot' and mod.Enabled then
+														local fov = 1000
+														pcall(function() fov = mod.Options['FOV'] and mod.Options['FOV'].Value or 1000 end)
+														ent = entitylib.EntityPosition({Part = aimPart, Range = fov, Players = true, NPCs = true})
+														if ent then break end
+													end
+												end
+												if ent then break end
+											end
+										end)
+									end
 									if ent then
 										local aimPos = prediction.GetAimPosition and prediction.GetAimPosition(ent, aimPart, origin) or (ent[aimPart] and ent[aimPart].Position or ent.RootPart.Position)
 										local aimVel = ent[aimPart] and ent[aimPart].Velocity or ent.RootPart.Velocity
