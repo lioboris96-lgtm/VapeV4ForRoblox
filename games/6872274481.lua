@@ -1578,65 +1578,27 @@ run(function()
 	local BlockCPS = {}
 	local Thread
 
-	local vim = game:GetService('VirtualInputManager')
 	local function AutoClick()
 		if Thread then
 			task.cancel(Thread)
 		end
 
 		Thread = task.spawn(function()
-			local lastSwitchTime = tick()
-			local lastTool = store.hand and store.hand.tool and store.hand.tool.Name or nil
 			repeat
-				if not bedwars.AppController or not bedwars.AppController:isLayerOpen(bedwars.UILayers.MAIN) then
-					local curTool = store.hand and store.hand.tool
-					local curType = store.hand and store.hand.toolType or nil
-					local curMeta = curTool and bedwars.ItemMeta[curTool.Name] or nil
-					local projSrc = curMeta and (curMeta.projectileSource or (curMeta.multiProjectileSource and curMeta.multiProjectileSource['mage_spell_base']))
-					local isChargable = projSrc and ((projSrc.maxStrengthChargeSec and projSrc.maxStrengthChargeSec > 0) or (projSrc.multiShotChargeTime and projSrc.multiShotChargeTime > 0) or projSrc.reload)
-					-- detect tool switch while holding
-					if curTool and curTool.Name ~= lastTool then
-						lastSwitchTime = tick()
-						lastTool = curTool.Name
-					end
-					local cpsVal = (curType == 'block' and BlockCPS or CPS).GetRandomValue()
-					if curType == 'block' then
-						-- use VirtualInputManager to hold for building, let game handle placement
-						local cam = workspace.CurrentCamera
-						local pos = cam and Vector2.new(cam.ViewportSize.X/2, cam.ViewportSize.Y/2) or Vector2.new(500,500)
-						vim:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 0)
-						task.wait(0.05)
-						vim:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 0)
-					elseif isChargable then
-						-- for bows/spears etc: hold to charge, use VIM hold
-						local cam = workspace.CurrentCamera
-						local pos = cam and Vector2.new(cam.ViewportSize.X/2, cam.ViewportSize.Y/2) or Vector2.new(500,500)
-						local chargeTime = 0.65
-						if projSrc.maxStrengthChargeSec and projSrc.maxStrengthChargeSec > 0 then
-							chargeTime = math.min(projSrc.maxStrengthChargeSec, 1.5)
-						elseif projSrc.multiShotChargeTime and projSrc.multiShotChargeTime > 0 then
-							chargeTime = math.min(projSrc.multiShotChargeTime, 1.5)
-						elseif projSrc.reload then
-							chargeTime = 0.3
+					if not bedwars.AppController or not bedwars.AppController:isLayerOpen(bedwars.UILayers.MAIN) then
+					local blockPlacer = bedwars.BlockPlacementController.blockPlacer
+					if store.hand.toolType == 'block' and blockPlacer then
+						if (workspace:GetServerTimeNow() - bedwars.BlockCpsController.lastPlaceTimestamp) >= ((1 / 12) * 0.5) then
+							local mouseinfo = blockPlacer.clientManager:getBlockSelector():getMouseInfo(0)
+							if mouseinfo and mouseinfo.placementPosition == mouseinfo.placementPosition then
+								task.spawn(blockPlacer.placeBlock, blockPlacer, mouseinfo.placementPosition)
+							end
 						end
-						vim:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 0)
-						task.wait(chargeTime)
-						vim:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 0)
-					elseif curType == 'sword' or (curMeta and curMeta.sword) then
-						local cam = workspace.CurrentCamera
-						local pos = cam and Vector2.new(cam.ViewportSize.X/2, cam.ViewportSize.Y/2) or Vector2.new(500,500)
-						vim:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 0)
-						task.wait(0.03)
-						vim:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 0)
-					else
-						-- generic: just click via VIM for any other tool (crossbow, etc) - allows normal use without switch
-						local cam = workspace.CurrentCamera
-						local pos = cam and Vector2.new(cam.ViewportSize.X/2, cam.ViewportSize.Y/2) or Vector2.new(500,500)
-						vim:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 0)
-						task.wait(0.03)
-						vim:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 0)
+					elseif store.hand.toolType == 'sword' then
+						bedwars.SwordController:swingSwordAtMouse(0.39)
 					end
 				end
+
 				task.wait(1 / (store.hand.toolType == 'block' and BlockCPS or CPS).GetRandomValue())
 			until not AutoClicker.Enabled
 		end)
