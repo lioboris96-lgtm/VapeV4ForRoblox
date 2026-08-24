@@ -1577,6 +1577,7 @@ run(function()
 	local CPS
 	local BlockCPS = {}
 	local ProjectileWhitelist
+	local AutoClickerAimPart
 	local Thread
 	local AutoClickerProjectileRemote = {InvokeServer = function() return true end}
 	local AutoClickerFireDelays = {}
@@ -1669,33 +1670,20 @@ run(function()
 									local cam = workspace.CurrentCamera
 									local dir = cam and cam.CFrame.LookVector or Vector3.new(0,0,-1)
 									local projSpeed = meta.launchVelocity
-									-- try aimbot: if ProjectileAimbot enabled, use its target/aim
-									pcall(function()
-										local aimbot = nil
-										for _, cat in pairs(vape.Categories) do
-											for _, mod in pairs(cat.Modules or {}) do
-												if mod.Name == 'ProjectileAimbot' and mod.Enabled then aimbot = mod break end
-											end
-											if aimbot then break end
+									local aimPart = AutoClickerAimPart and AutoClickerAimPart.Value or 'Head'
+									local ent = entitylib.EntityPosition({Part = aimPart, Range = 50, Players = true, NPCs = true, Wallcheck = false})
+									if not ent and aimPart ~= 'Head' then ent = entitylib.EntityPosition({Part = 'Head', Range = 50, Players = true, NPCs = true}) end
+									if ent then
+										local aimPos = prediction.GetAimPosition and prediction.GetAimPosition(ent, aimPart, origin) or (ent[aimPart] and ent[aimPart].Position or ent.RootPart.Position)
+										local aimVel = ent[aimPart] and ent[aimPart].Velocity or ent.RootPart.Velocity
+										if aimPart == 'Legs' or aimPart == 'Feet' or aimPart == 'Closest' or aimPart == 'Random' or aimPart == 'UpperTorso' then aimVel = ent.RootPart.Velocity end
+										local g = meta.gravitationalAcceleration or 196.2
+										local calc = prediction.SolveTrajectory(origin, projSpeed, g, aimPos, aimVel, workspace.Gravity, ent.HipHeight, ent.Jumping and 42.6 or nil, RaycastParams.new())
+										if not calc and prediction.SolveTrajectoryWithAim then
+											calc = prediction.SolveTrajectoryWithAim(origin, projSpeed, g, ent, aimPart, aimVel, workspace.Gravity, ent.HipHeight, ent.Jumping and 42.6 or nil, RaycastParams.new())
 										end
-										if aimbot then
-											local aimPart = 'Head'
-											pcall(function()
-												local mod = nil
-												for _, cat in pairs(vape.Categories) do for _, m in pairs(cat.Modules or {}) do if m.Name == 'ProjectileAimbot' then mod = m break end end if mod then break end end
-												if mod and mod.Options and mod.Options['Part'] then aimPart = mod.Options['Part'].Value or 'Head' end
-											end)
-											local ent = entitylib.EntityPosition({Part = aimPart, Range = 50, Players = true, NPCs = true, Wallcheck = false})
-											if not ent then ent = entitylib.EntityPosition({Part = 'Head', Range = 50, Players = true, NPCs = true}) end
-											if ent then
-												local aimPos = prediction.GetAimPosition and prediction.GetAimPosition(ent, aimPart, origin) or ent[aimPart] and ent[aimPart].Position or ent.RootPart.Position
-												local aimVel = ent[aimPart] and ent[aimPart].Velocity or ent.RootPart.Velocity
-												local g = meta.gravitationalAcceleration or 196.2
-												local calc = prediction.SolveTrajectory(origin, projSpeed, g, aimPos, aimVel, workspace.Gravity, ent.HipHeight, ent.Jumping and 42.6 or nil, RaycastParams.new())
-												if calc then dir = (calc - origin).Unit end
-											end
-										end
-									end)
+										if calc then dir = (calc - origin).Unit end
+									end
 									local shootPos = (CFrame.new(origin, origin + dir) * CFrame.new(Vector3.new(-bedwars.BowConstantsTable.RelX, -bedwars.BowConstantsTable.RelY, -bedwars.BowConstantsTable.RelZ))).Position
 									local id = httpService:GenerateGUID(true)
 									bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPos, id, dir * projSpeed, {drawDurationSeconds = 0.1})
@@ -1809,6 +1797,12 @@ run(function()
 		Name = 'Projectiles',
 		Default = {},
 		Tooltip = 'Projectiles to fire via remote when switching while holding (sword -> bow etc.)'
+	})
+	AutoClickerAimPart = AutoClicker:CreateDropdown({
+		Name = 'Aim Part',
+		List = {'Head', 'RootPart', 'UpperTorso', 'Legs', 'Feet', 'Closest', 'Random'},
+		Default = 'Head',
+		Tooltip = 'Where to aim whitelisted projectiles fired via switch'
 	})
 	AutoClicker:CreateButton({
 		Name = 'Add Held Projectile',
