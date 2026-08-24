@@ -1608,24 +1608,47 @@ run(function()
 	local vimService = game:GetService('VirtualInputManager')
 	local vimQuietUntil = 0
 	local physHeld = false
+	local vimMode
 
-	local function vimMouse(x, y, down)
-		vimQuietUntil = os.clock() + 0.12
-		pcall(function() vimService:SendMouseButtonEvent(x, y, 0, down, game, 1) end)
+	local function vimSend(x, y, down)
+		local ok, err = pcall(function() vimService:SendMouseButtonEvent(x, y, 0, down, game, 1) end)
+		if not ok then warn('[Vape] AutoClicker VIM error: '..tostring(err)) end
 	end
 
 	local function vimMove(x, y)
 		pcall(function() vimService:SendMouseMoveEvent(x, y, game) end)
 	end
 
+	local function detectVim()
+		if vimMode ~= nil then return vimMode end
+		local got = 0
+		local conn = inputService.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 then got += 1 end
+		end)
+		local m = lplr:GetMouse()
+		vimQuietUntil = os.clock() + 0.6
+		vimSend(m.X, m.Y, false)
+		task.wait(0.06)
+		vimSend(m.X, m.Y, true)
+		task.wait(0.04)
+		vimSend(m.X, m.Y, false)
+		local t0 = os.clock()
+		while got == 0 and os.clock() - t0 < 0.3 do task.wait(0.03) end
+		conn:Disconnect()
+		vimMode = got > 0
+		warn('[Vape] AutoClicker: '..(vimMode and 'VirtualInputManager active (physical click taken over)' or 'VirtualInputManager unavailable, using direct mode'))
+		return vimMode
+	end
+
 	local function AutoClick()
 		if Thread then return end
 
 		Thread = task.spawn(function()
-			do
+			local useVim = detectVim()
+			if useVim then
 				local m = lplr:GetMouse()
 				vimQuietUntil = os.clock() + 0.12
-				pcall(function() vimService:SendMouseButtonEvent(m.X, m.Y, 0, false, game, 1) end)
+				vimSend(m.X, m.Y, false)
 			end
 			local lastTool = store.hand and store.hand.tool and store.hand.tool.Name or nil
 			repeat
@@ -1636,12 +1659,22 @@ run(function()
 				if justSwitched then
 					lastTool = curToolName
 				end
-				local mouseObj = lplr:GetMouse()
 				if not bedwars.AppController or not bedwars.AppController:isLayerOpen(bedwars.UILayers.MAIN) then
 					if curType == 'block' then
-					vimMouse(mouseObj.X, mouseObj.Y, true)
-					task.wait(0.02)
-					vimMouse(mouseObj.X, mouseObj.Y, false)
+						if useVim then
+							local m = lplr:GetMouse()
+							vimSend(m.X, m.Y, true)
+							task.wait(0.02)
+							vimSend(m.X, m.Y, false)
+						else
+							local blockPlacer = bedwars.BlockPlacementController.blockPlacer
+							if blockPlacer then
+								local mouseinfo = blockPlacer.clientManager:getBlockSelector():getMouseInfo(0)
+								if mouseinfo and mouseinfo.placementPosition == mouseinfo.placementPosition then
+									task.spawn(blockPlacer.placeBlock, blockPlacer, mouseinfo.placementPosition)
+								end
+							end
+						end
 				elseif curToolName and isWhitelistedProjectile(curToolName) and justSwitched then
 					task.wait(0.06)
 					local aimPart = AutoClickerAimPart and AutoClickerAimPart.Value or 'Head'
@@ -1658,7 +1691,8 @@ run(function()
 					local ent = entitylib.EntityPosition({Part = aimPart, Range = 100, Players = true, NPCs = true})
 					if not ent then ent = entitylib.EntityPosition({Part = 'Head', Range = 100, Players = true, NPCs = true}) end
 					if not ent then ent = entitylib.EntityPosition({Part = 'RootPart', Range = 100, Players = true, NPCs = true}) end
-					local tx, ty = mouseObj.X, mouseObj.Y
+					local m2 = lplr:GetMouse()
+					local tx, ty = m2.X, m2.Y
 					if ent then
 						local aimPos = ent[aimPart] and ent[aimPart].Position or ent.RootPart.Position
 						local cam = workspace.CurrentCamera
@@ -1669,13 +1703,18 @@ run(function()
 					end
 					vimMove(tx, ty)
 					task.wait(0.03)
-					vimMouse(tx, ty, true)
+					vimSend(tx, ty, true)
 					task.wait(0.05)
-					vimMouse(tx, ty, false)
+					vimSend(tx, ty, false)
 				elseif curType == 'sword' or (curTool and bedwars.ItemMeta[curTool.Name] and bedwars.ItemMeta[curTool.Name].sword) then
-					vimMouse(mouseObj.X, mouseObj.Y, true)
-					task.wait(0.03)
-					vimMouse(mouseObj.X, mouseObj.Y, false)
+					if useVim then
+						local m = lplr:GetMouse()
+						vimSend(m.X, m.Y, true)
+						task.wait(0.03)
+						vimSend(m.X, m.Y, false)
+					else
+						bedwars.SwordController:swingSwordAtMouse(0.39)
+					end
 				end
 				end
 
