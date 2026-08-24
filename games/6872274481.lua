@@ -1671,48 +1671,34 @@ run(function()
 									local dir = cam and cam.CFrame.LookVector or Vector3.new(0,0,-1)
 									local projSpeed = meta.launchVelocity
 									local aimPart = AutoClickerAimPart and AutoClickerAimPart.Value or 'Head'
-									local useAimbot = false
 									pcall(function()
 										for _, cat in pairs(vape.Categories) do
 											for _, mod in pairs(cat.Modules or {}) do
-												if mod.Name == 'ProjectileAimbot' and mod.Enabled then
-													useAimbot = true
-													if mod.Options and mod.Options['Part'] and mod.Options['Part'].Value then
-														aimPart = mod.Options['Part'].Value
-													end
+												if mod.Name == 'ProjectileAimbot' and mod.Enabled and mod.Options and mod.Options['Part'] then
+													aimPart = mod.Options['Part'].Value or aimPart
 													break
 												end
 											end
-											if useAimbot then break end
 										end
 									end)
-									local ent = entitylib.EntityPosition({Part = aimPart, Range = 50, Players = true, NPCs = true, Wallcheck = false})
-									if not ent and aimPart ~= 'Head' then ent = entitylib.EntityPosition({Part = 'Head', Range = 50, Players = true, NPCs = true}) end
-									if not ent then
-										pcall(function()
-											for _, cat in pairs(vape.Categories) do
-												for _, mod in pairs(cat.Modules or {}) do
-													if mod.Name == 'ProjectileAimbot' and mod.Enabled then
-														local fov = 1000
-														pcall(function() fov = mod.Options['FOV'] and mod.Options['FOV'].Value or 1000 end)
-														ent = entitylib.EntityPosition({Part = aimPart, Range = fov, Players = true, NPCs = true})
-														if ent then break end
-													end
-												end
-												if ent then break end
-											end
-										end)
-									end
+									local ent = entitylib.EntityPosition({Part = aimPart, Range = 100, Players = true, NPCs = true})
+									if not ent then ent = entitylib.EntityPosition({Part = 'Head', Range = 100, Players = true, NPCs = true}) end
+									if not ent then ent = entitylib.EntityPosition({Part = 'RootPart', Range = 100, Players = true, NPCs = true}) end
 									if ent then
 										local aimPos = prediction.GetAimPosition and prediction.GetAimPosition(ent, aimPart, origin) or (ent[aimPart] and ent[aimPart].Position or ent.RootPart.Position)
-										local aimVel = ent[aimPart] and ent[aimPart].Velocity or ent.RootPart.Velocity
-										if aimPart == 'Legs' or aimPart == 'Feet' or aimPart == 'Closest' or aimPart == 'Random' or aimPart == 'UpperTorso' then aimVel = ent.RootPart.Velocity end
+										if not aimPos or (aimPos - origin).Magnitude > 100 then aimPos = ent.Head and ent.Head.Position or ent.RootPart.Position end
+										local aimVel = ent.RootPart.Velocity
+										if ent[aimPart] and ent[aimPart].Velocity then aimVel = ent[aimPart].Velocity end
 										local g = meta.gravitationalAcceleration or 196.2
-										local calc = prediction.SolveTrajectory(origin, projSpeed, g, aimPos, aimVel, workspace.Gravity, ent.HipHeight, ent.Jumping and 42.6 or nil, RaycastParams.new())
+										local params2 = RaycastParams.new()
+										params2.FilterType = Enum.RaycastFilterType.Include
+										params2.FilterDescendantsInstances = {workspace.Map}
+										local calc = prediction.SolveTrajectory(origin, projSpeed, g, aimPos, aimVel, workspace.Gravity, ent.HipHeight, ent.Jumping and 42.6 or nil, params2)
 										if not calc and prediction.SolveTrajectoryWithAim then
-											calc = prediction.SolveTrajectoryWithAim(origin, projSpeed, g, ent, aimPart, aimVel, workspace.Gravity, ent.HipHeight, ent.Jumping and 42.6 or nil, RaycastParams.new())
+											calc = prediction.SolveTrajectoryWithAim(origin, projSpeed, g, ent, aimPart, aimVel, workspace.Gravity, ent.HipHeight, ent.Jumping and 42.6 or nil, params2)
 										end
-										if calc then dir = (calc - origin).Unit end
+										if calc then dir = (calc - origin).Unit else dir = (aimPos - origin).Unit end
+									end
 									end
 									local shootPos = (CFrame.new(origin, origin + dir) * CFrame.new(Vector3.new(-bedwars.BowConstantsTable.RelX, -bedwars.BowConstantsTable.RelY, -bedwars.BowConstantsTable.RelZ))).Position
 									local id = httpService:GenerateGUID(true)
