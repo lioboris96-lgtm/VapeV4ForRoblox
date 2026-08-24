@@ -1699,7 +1699,6 @@ run(function()
 										end
 										if calc then dir = (calc - origin).Unit else dir = (aimPos - origin).Unit end
 									end
-									end
 									local shootPos = (CFrame.new(origin, origin + dir) * CFrame.new(Vector3.new(-bedwars.BowConstantsTable.RelX, -bedwars.BowConstantsTable.RelY, -bedwars.BowConstantsTable.RelZ))).Position
 									local id = httpService:GenerateGUID(true)
 									bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPos, id, dir * projSpeed, {drawDurationSeconds = 0.1})
