@@ -1579,20 +1579,6 @@ run(function()
 	local ProjectileWhitelist
 	local AutoClickerAimPart
 	local Thread
-	local AutoClickerProjectileRemote = {InvokeServer = function() return true end}
-	local AutoClickerFireDelays = {}
-	task.spawn(function()
-		pcall(function() AutoClickerProjectileRemote = bedwars.Client:Get(remotes.FireProjectile).instance end)
-	end)
-
-	local function getProjectileForTool(toolName)
-		local meta = toolName and bedwars.ItemMeta[toolName]
-		if not meta then return end
-		if meta.projectileSource then return meta.projectileSource, toolName end
-		if meta.multiProjectileSource then
-			for _, src in pairs(meta.multiProjectileSource) do return src, toolName end
-		end
-	end
 
 	local function isWhitelistedProjectile(toolName)
 		if not ProjectileWhitelist then return false end
@@ -1619,131 +1605,84 @@ run(function()
 		return false
 	end
 
+	local vimService = game:GetService('VirtualInputManager')
+	local vimQuietUntil = 0
+	local physHeld = false
+
+	local function vimMouse(x, y, down)
+		vimQuietUntil = os.clock() + 0.12
+		pcall(function() vimService:SendMouseButtonEvent(x, y, 0, down, game, 1) end)
+	end
+
+	local function vimMove(x, y)
+		pcall(function() vimService:SendMouseMoveEvent(x, y, game) end)
+	end
+
 	local function AutoClick()
-		if Thread then
-			task.cancel(Thread)
-		end
+		if Thread then return end
 
 		Thread = task.spawn(function()
+			do
+				local m = lplr:GetMouse()
+				vimQuietUntil = os.clock() + 0.12
+				pcall(function() vimService:SendMouseButtonEvent(m.X, m.Y, 0, false, game, 1) end)
+			end
 			local lastTool = store.hand and store.hand.tool and store.hand.tool.Name or nil
-			local initialTool = lastTool
 			repeat
-					if not bedwars.AppController or not bedwars.AppController:isLayerOpen(bedwars.UILayers.MAIN) then
-					local curTool = store.hand and store.hand.tool
-					local curToolName = curTool and curTool.Name or nil
-					local curType = store.hand and store.hand.toolType or nil
-					local justSwitched = curToolName ~= lastTool
-					if justSwitched then
-						lastTool = curToolName
-					end
-					local blockPlacer = bedwars.BlockPlacementController.blockPlacer
-					if curType == 'block' and blockPlacer then
-						if (workspace:GetServerTimeNow() - bedwars.BlockCpsController.lastPlaceTimestamp) >= ((1 / 12) * 0.5) then
-							local mouseinfo = blockPlacer.clientManager:getBlockSelector():getMouseInfo(0)
-							if mouseinfo and mouseinfo.placementPosition == mouseinfo.placementPosition then
-								task.spawn(blockPlacer.placeBlock, blockPlacer, mouseinfo.placementPosition)
-							end
-						end
-					elseif curToolName and isWhitelistedProjectile(curToolName) and justSwitched then
-						local projSrc, ammoType = getProjectileForTool(curToolName)
-						if projSrc then
-							local ammo = nil
-							if projSrc.ammoItemTypes and #projSrc.ammoItemTypes > 0 then
-								for _, a in ipairs(projSrc.ammoItemTypes) do
-									for _, it in ipairs(store.inventory.inventory.items) do
-										if it.itemType == a then ammo = a break end
-									end
-									if ammo then break end
-								end
-								ammo = ammo or projSrc.ammoItemTypes[1]
-							else
-								ammo = curToolName
-							end
-							local cooldownId = projSrc.cooldownId or (curToolName .. "-proj-source")
-							-- allow immediate fire on switch, wait a tick for tool to equip
-							if justSwitched then task.wait(0.06) end
-							if justSwitched or (AutoClickerFireDelays[cooldownId] or 0) < tick() then
-								local projectile = projSrc.projectileType(ammo)
-								local meta = projectile and bedwars.ProjectileMeta[projectile]
-								if meta and projectile then
-									local origin = entitylib.character.RootPart.Position
-									local cam = workspace.CurrentCamera
-									local dir = cam and cam.CFrame.LookVector or Vector3.new(0,0,-1)
-									local projSpeed = meta.launchVelocity
-									local aimPart = AutoClickerAimPart and AutoClickerAimPart.Value or 'Head'
-									pcall(function()
-										for _, cat in pairs(vape.Categories) do
-											for _, mod in pairs(cat.Modules or {}) do
-												if mod.Name == 'ProjectileAimbot' and mod.Enabled and mod.Options and mod.Options['Part'] then
-													aimPart = mod.Options['Part'].Value or aimPart
-													break
-												end
-											end
-										end
-									end)
-									local ent = entitylib.EntityPosition({Part = aimPart, Range = 100, Players = true, NPCs = true})
-									if not ent then ent = entitylib.EntityPosition({Part = 'Head', Range = 100, Players = true, NPCs = true}) end
-									if not ent then ent = entitylib.EntityPosition({Part = 'RootPart', Range = 100, Players = true, NPCs = true}) end
-									if ent then
-										local aimPos = prediction.GetAimPosition and prediction.GetAimPosition(ent, aimPart, origin) or (ent[aimPart] and ent[aimPart].Position or ent.RootPart.Position)
-										if not aimPos or (aimPos - origin).Magnitude > 100 then aimPos = ent.Head and ent.Head.Position or ent.RootPart.Position end
-										local aimVel = ent.RootPart.Velocity
-										if ent[aimPart] and ent[aimPart].Velocity then aimVel = ent[aimPart].Velocity end
-										local g = meta.gravitationalAcceleration or 196.2
-										local params2 = RaycastParams.new()
-										params2.FilterType = Enum.RaycastFilterType.Include
-										params2.FilterDescendantsInstances = {workspace.Map}
-										local calc = prediction.SolveTrajectory(origin, projSpeed, g, aimPos, aimVel, workspace.Gravity, ent.HipHeight, ent.Jumping and 42.6 or nil, params2)
-										if not calc and prediction.SolveTrajectoryWithAim then
-											calc = prediction.SolveTrajectoryWithAim(origin, projSpeed, g, ent, aimPart, aimVel, workspace.Gravity, ent.HipHeight, ent.Jumping and 42.6 or nil, params2)
-										end
-										if calc then dir = (calc - origin).Unit else dir = (aimPos - origin).Unit end
-									end
-									local shootPos = (CFrame.new(origin, origin + dir) * CFrame.new(Vector3.new(-bedwars.BowConstantsTable.RelX, -bedwars.BowConstantsTable.RelY, -bedwars.BowConstantsTable.RelZ))).Position
-									local id = httpService:GenerateGUID(true)
-									bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPos, id, dir * projSpeed, {drawDurationSeconds = 0.1})
-									local tp = projSrc.thirdPerson and projSrc.thirdPerson.fireAnimation
-									if tp and tp ~= 0 then pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, tp) end) end
-									local fp = projSrc.firstPerson and projSrc.firstPerson.fireAnimation
-									if fp and fp ~= 0 then pcall(function() bedwars.ViewmodelController:playAnimation(fp, {fadeTime = 0.12}) end) end
-									if not tp and not fp then
-										if curToolName == 'spear' or curToolName == 'sand_spear' or curToolName == 'harpoon' then
-											pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, 82) end)
-										else
-											pcall(function() bedwars.ViewmodelController:playAnimation(14, {fadeTime = 0.12}) end)
-											pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, 5) end)
-										end
-									end
-									local res = AutoClickerProjectileRemote:InvokeServer(curTool, ammo, projectile, shootPos, origin, dir * projSpeed, id, {drawDurationSeconds = 0.1, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
-									if not res then
-										AutoClickerFireDelays[cooldownId] = tick() + 0.2
-									else
-										local cd = projSrc.fireDelaySec or 0.5
-										pcall(function()
-											local Knit = require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient
-											local cc = Knit.Controllers.CooldownController
-											if cc and cc.setOnCooldown then cc:setOnCooldown(cooldownId, cd) end
-										end)
-										AutoClickerFireDelays[cooldownId] = tick() + cd
-										local snd = projSrc.launchSound and projSrc.launchSound[math.random(1, #projSrc.launchSound)] or nil
-										if snd then pcall(function() bedwars.SoundManager:playSound(snd) end) end
-									end
+				local curTool = store.hand and store.hand.tool
+				local curToolName = curTool and curTool.Name or nil
+				local curType = store.hand and store.hand.toolType or nil
+				local justSwitched = curToolName ~= lastTool
+				if justSwitched then
+					lastTool = curToolName
+				end
+				local mouseObj = lplr:GetMouse()
+				if not bedwars.AppController or not bedwars.AppController:isLayerOpen(bedwars.UILayers.MAIN) then
+					if curType == 'block' then
+					vimMouse(mouseObj.X, mouseObj.Y, true)
+					task.wait(0.02)
+					vimMouse(mouseObj.X, mouseObj.Y, false)
+				elseif curToolName and isWhitelistedProjectile(curToolName) and justSwitched then
+					task.wait(0.06)
+					local aimPart = AutoClickerAimPart and AutoClickerAimPart.Value or 'Head'
+					pcall(function()
+						for _, cat in pairs(vape.Categories) do
+							for _, mod in pairs(cat.Modules or {}) do
+								if mod.Name == 'ProjectileAimbot' and mod.Enabled and mod.Options and mod.Options['Part'] then
+									aimPart = mod.Options['Part'].Value or aimPart
+									break
 								end
 							end
 						end
-					elseif curType == 'sword' or (curTool and bedwars.ItemMeta[curTool.Name] and bedwars.ItemMeta[curTool.Name].sword) then
-						bedwars.SwordController:swingSwordAtMouse(0.39)
-					else
-						-- fallback for other tools via sword swing if they have sword meta, else generic click
-						if curTool and bedwars.ItemMeta[curTool.Name] and bedwars.ItemMeta[curTool.Name].sword then
-							bedwars.SwordController:swingSwordAtMouse(0.39)
+					end)
+					local ent = entitylib.EntityPosition({Part = aimPart, Range = 100, Players = true, NPCs = true})
+					if not ent then ent = entitylib.EntityPosition({Part = 'Head', Range = 100, Players = true, NPCs = true}) end
+					if not ent then ent = entitylib.EntityPosition({Part = 'RootPart', Range = 100, Players = true, NPCs = true}) end
+					local tx, ty = mouseObj.X, mouseObj.Y
+					if ent then
+						local aimPos = ent[aimPart] and ent[aimPart].Position or ent.RootPart.Position
+						local cam = workspace.CurrentCamera
+						if cam then
+							local sp, onScreen = cam:WorldToViewportPoint(aimPos)
+							if sp and onScreen then tx, ty = sp.X, sp.Y end
 						end
 					end
+					vimMove(tx, ty)
+					task.wait(0.03)
+					vimMouse(tx, ty, true)
+					task.wait(0.05)
+					vimMouse(tx, ty, false)
+				elseif curType == 'sword' or (curTool and bedwars.ItemMeta[curTool.Name] and bedwars.ItemMeta[curTool.Name].sword) then
+					vimMouse(mouseObj.X, mouseObj.Y, true)
+					task.wait(0.03)
+					vimMouse(mouseObj.X, mouseObj.Y, false)
+				end
 				end
 
 				local curCPS = (store.hand.toolType == 'block' and BlockCPS or CPS).GetRandomValue()
 				task.wait(1 / curCPS)
-			until not AutoClicker.Enabled
+			until not AutoClicker.Enabled or not physHeld
+			Thread = nil
 		end)
 	end
 
@@ -1751,31 +1690,34 @@ run(function()
 		Name = 'AutoClicker',
 		Function = function(callback)
 			if callback then
-				AutoClicker:Clean(inputService.InputBegan:Connect(function(input)
+				AutoClicker:Clean(inputService.InputBegan:Connect(function(input, gp)
+					if gp or os.clock() < vimQuietUntil then return end
 					if input.UserInputType == Enum.UserInputType.MouseButton1 then
+						physHeld = true
 						AutoClick()
 					end
 				end))
 
 				AutoClicker:Clean(inputService.InputEnded:Connect(function(input)
-					if input.UserInputType == Enum.UserInputType.MouseButton1 and Thread then
-						task.cancel(Thread)
-						Thread = nil
+					if os.clock() < vimQuietUntil then return end
+					if input.UserInputType == Enum.UserInputType.MouseButton1 then
+						physHeld = false
 					end
 				end))
 
 				if inputService.TouchEnabled then
 					pcall(function()
-						AutoClicker:Clean(lplr.PlayerGui.MobileUI['2'].MouseButton1Down:Connect(AutoClick))
+						AutoClicker:Clean(lplr.PlayerGui.MobileUI['2'].MouseButton1Down:Connect(function()
+							physHeld = true
+							AutoClick()
+						end))
 						AutoClicker:Clean(lplr.PlayerGui.MobileUI['2'].MouseButton1Up:Connect(function()
-							if Thread then
-								task.cancel(Thread)
-								Thread = nil
-							end
+							physHeld = false
 						end))
 					end)
 				end
 			else
+				physHeld = false
 				if Thread then
 					task.cancel(Thread)
 					Thread = nil
@@ -7444,7 +7386,11 @@ run(function()
 			shopId = id
 		}):andThen(function(suc)
 			if suc then
-				bedwars.SoundManager:playSound(bedwars.SoundList.BEDWARS_PURCHASE_ITEM)
+				pcall(function()
+					if bedwars.SoundManager and bedwars.SoundList and bedwars.SoundList.BEDWARS_PURCHASE_ITEM then
+						bedwars.SoundManager:playSound(bedwars.SoundList.BEDWARS_PURCHASE_ITEM)
+					end
+				end)
 				bedwars.Store:dispatch({
 					type = 'BedwarsAddItemPurchased',
 					itemType = item.itemType
