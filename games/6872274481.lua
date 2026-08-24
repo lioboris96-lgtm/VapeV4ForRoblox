@@ -1662,35 +1662,16 @@ run(function()
 							-- allow immediate fire on switch, wait a tick for tool to equip
 							if justSwitched then task.wait(0.06) end
 							if justSwitched or (AutoClickerFireDelays[cooldownId] or 0) < tick() then
-								local isChargeable = projSrc.maxStrengthChargeSec and projSrc.maxStrengthChargeSec > 0
-								local chargeTime = 0
-								if isChargeable then
-									chargeTime = math.min(projSrc.maxStrengthChargeSec, 0.65)
-									-- slowdown
-									pcall(function()
-										local mult = projSrc.walkSpeedMultiplier or 0.35
-										local sc = bedwars.SprintController
-										if not sc then
-											local Knit = require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient
-											sc = Knit.Controllers.SprintController
-										end
-										if sc and sc.getMovementStatusModifier then
-											local h = sc:getMovementStatusModifier():addModifier({blockSprint = true, moveSpeedMultiplier = mult})
-											task.delay(chargeTime, function() pcall(function() h:Destroy() end) end)
-										end
-									end)
-									task.wait(chargeTime)
-								end
 								local projectile = projSrc.projectileType(ammo)
 								local meta = projectile and bedwars.ProjectileMeta[projectile]
 								if meta and projectile then
 									local origin = entitylib.character.RootPart.Position
 									local cam = workspace.CurrentCamera
 									local dir = cam and cam.CFrame.LookVector or Vector3.new(0,0,-1)
-									local projSpeed = meta.launchVelocity * (isChargeable and (chargeTime > 0 and 1 or (projSrc.minStrengthScalar or 1)) or 1)
+									local projSpeed = meta.launchVelocity
 									local shootPos = (CFrame.new(origin, origin + dir) * CFrame.new(Vector3.new(-bedwars.BowConstantsTable.RelX, -bedwars.BowConstantsTable.RelY, -bedwars.BowConstantsTable.RelZ))).Position
 									local id = httpService:GenerateGUID(true)
-									bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPos, id, dir * projSpeed, {drawDurationSeconds = chargeTime > 0 and chargeTime or 0.1})
+									bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPos, id, dir * projSpeed, {drawDurationSeconds = 0.1})
 									local tp = projSrc.thirdPerson and projSrc.thirdPerson.fireAnimation
 									if tp and tp ~= 0 then pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, tp) end) end
 									local fp = projSrc.firstPerson and projSrc.firstPerson.fireAnimation
@@ -1703,7 +1684,7 @@ run(function()
 											pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, 5) end)
 										end
 									end
-									local res = AutoClickerProjectileRemote:InvokeServer(curTool, ammo, projectile, shootPos, origin, dir * projSpeed, id, {drawDurationSeconds = chargeTime > 0 and chargeTime or 0.1, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
+									local res = AutoClickerProjectileRemote:InvokeServer(curTool, ammo, projectile, shootPos, origin, dir * projSpeed, id, {drawDurationSeconds = 0.1, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
 									if not res then
 										AutoClickerFireDelays[cooldownId] = tick() + 0.2
 									else
@@ -1711,9 +1692,9 @@ run(function()
 										pcall(function()
 											local Knit = require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient
 											local cc = Knit.Controllers.CooldownController
-											if cc and cc.setOnCooldown then cc:setOnCooldown(cooldownId, cd + chargeTime) end
+											if cc and cc.setOnCooldown then cc:setOnCooldown(cooldownId, cd) end
 										end)
-										AutoClickerFireDelays[cooldownId] = tick() + cd + chargeTime
+										AutoClickerFireDelays[cooldownId] = tick() + cd
 										local snd = projSrc.launchSound and projSrc.launchSound[math.random(1, #projSrc.launchSound)] or nil
 										if snd then pcall(function() bedwars.SoundManager:playSound(snd) end) end
 									end
