@@ -4644,11 +4644,9 @@ run(function()
 
 	local function elevate(func)
 		return function(...)
-			local suc, err = pcall(function()
-				if setthreadidentity then setthreadidentity(8) end
-				if setidentity then setidentity(8) end
-				func(...)
-			end)
+			if setthreadidentity then pcall(setthreadidentity, 8) end
+			if setidentity then pcall(setidentity, 8) end
+			local suc, err = pcall(func, ...)
 			if not suc and err then warn('[Vape] NameTags: '..tostring(err)) end
 		end
 	end
