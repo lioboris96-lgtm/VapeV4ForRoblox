@@ -4641,6 +4641,17 @@ run(function()
 	local Folder = Instance.new('Folder')
 	Folder.Parent = vape.gui
 	local methodused
+
+	local function elevate(func)
+		return function(...)
+			local suc, err = pcall(function()
+				if setthreadidentity then setthreadidentity(8) end
+				if setidentity then setidentity(8) end
+				func(...)
+			end)
+			if not suc and err then warn('[Vape] NameTags: '..tostring(err)) end
+		end
+	end
 	
 	local Added = {
 		Normal = function(ent)
@@ -4878,7 +4889,13 @@ run(function()
 			end
 		end
 	}
-	
+
+	for name, fn in pairs(Added) do Added[name] = elevate(fn) end
+	for name, fn in pairs(Removed) do Removed[name] = elevate(fn) end
+	if Updated then for name, fn in pairs(Updated) do Updated[name] = elevate(fn) end end
+	for name, fn in pairs(ColorFunc) do ColorFunc[name] = elevate(fn) end
+	for name, fn in pairs(Loop) do Loop[name] = elevate(fn) end
+
 	NameTags = vape.Categories.Render:CreateModule({
 		Name = 'NameTags',
 		Function = function(callback)
