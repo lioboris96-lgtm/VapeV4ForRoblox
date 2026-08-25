@@ -1671,7 +1671,9 @@ run(function()
 									local projSpeed = meta.launchVelocity
 									local shootPos = (CFrame.new(origin, origin + dir) * CFrame.new(Vector3.new(-bedwars.BowConstantsTable.RelX, -bedwars.BowConstantsTable.RelY, -bedwars.BowConstantsTable.RelZ))).Position
 									local id = httpService:GenerateGUID(true)
-									bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPos, id, dir * projSpeed, {drawDurationSeconds = 0.1})
+									local itemMetaAC = bedwars.ItemMeta[curToolName]
+									local drawSecAC = (itemMetaAC and itemMetaAC.maxStrengthChargeSec and itemMetaAC.maxStrengthChargeSec > 0) and itemMetaAC.maxStrengthChargeSec or 0.1
+									bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPos, id, dir * projSpeed, {drawDurationSeconds = drawSecAC})
 									local tp = projSrc.thirdPerson and projSrc.thirdPerson.fireAnimation
 									if tp and tp ~= 0 then pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, tp) end) end
 									local fp = projSrc.firstPerson and projSrc.firstPerson.fireAnimation
@@ -1684,7 +1686,7 @@ run(function()
 											pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, 5) end)
 										end
 									end
-									local res = AutoClickerProjectileRemote:InvokeServer(curTool, ammo, projectile, shootPos, origin, dir * projSpeed, id, {drawDurationSeconds = 0.1, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
+									local res = AutoClickerProjectileRemote:InvokeServer(curTool, ammo, projectile, shootPos, origin, dir * projSpeed, id, {drawDurationSeconds = drawSecAC, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
 									if not res then
 										AutoClickerFireDelays[cooldownId] = tick() + 0.2
 									else
@@ -3787,9 +3789,10 @@ run(function()
 				old = bedwars.ProjectileController.calculateImportantLaunchValues
 				bedwars.ProjectileController.calculateImportantLaunchValues = function(...)
 					local self, projmeta, worldmeta, origin, shootpos = ...
+					local base = old(...)
 
 					if table.find(IgnoreProjectiles.ListEnabled, projmeta.projectile) then
-						return old(...)
+						return base
 					end
 
 					local plr = entitylib.EntityMouse({
@@ -3804,17 +3807,17 @@ run(function()
 					if plr then
 						local pos = shootpos or self:getLaunchPosition(origin)
 						if not pos then
-							return old(...)
+							return base
 						end
 	
 						if (not OtherProjectiles.Enabled) and not projmeta.projectile:find('arrow') then
-							return old(...)
+							return base
 						end
 	
 						local meta = projmeta:getProjectileMeta()
 						local lifetime = (worldmeta and meta.predictionLifetimeSec or meta.lifetimeSec or 3)
-						local gravity = (meta.gravitationalAcceleration or 196.2) * projmeta.gravityMultiplier
-						local projSpeed = (meta.launchVelocity or 100)
+						local gravity = base.gravitationalAcceleration or ((meta.gravitationalAcceleration or 196.2) * projmeta.gravityMultiplier)
+						local projSpeed = base.initialVelocity.Magnitude
 						local offsetpos = pos + (projmeta.projectile == 'owl_projectile' and Vector3.zero or projmeta.fromPositionOffset)
 						local char = plr.Character
 						local balloons = char and char:GetAttribute('InflatedBalloons')
@@ -3843,17 +3846,13 @@ run(function()
 						local calc = prediction.SolveTrajectory(newlook.p, projSpeed, gravity, aimPos, projmeta.projectile == 'telepearl' and Vector3.zero or aimVel, playerGravity, plr.HipHeight, plr.Jumping and 42.6 or nil, rayCheck)
 						if calc then
 							targetinfo.Targets[plr] = tick() + 1
-							return {
-								initialVelocity = CFrame.new(newlook.Position, calc).LookVector * projSpeed,
-								positionFrom = offsetpos,
-								deltaT = lifetime,
-								gravitationalAcceleration = gravity,
-								drawDurationSeconds = 5
-							}
+							base.positionFrom = offsetpos
+											base.initialVelocity = CFrame.new(newlook.Position, calc).LookVector * base.initialVelocity.Magnitude
+											return base
 						end
 					end
 	
-					return old(...)
+					return base
 				end
 			else
 				bedwars.ProjectileController.calculateImportantLaunchValues = old
