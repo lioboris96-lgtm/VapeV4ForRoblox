@@ -211,7 +211,7 @@ function module.SolveTrajectory(origin, projectileSpeed, gravity, targetPos, tar
 	no-hit path keeps the true target velocity instead of corrupting it (the old
 	version subtracted 0.5*g*t from q on every path, which wrecked vertical lead
 	for any airborne target). ]]
-	if math.abs(q) > 0.01 and playerGravity and playerGravity > 0 and params then
+	if module.AirCompensation ~= false and math.abs(q) > 0.01 and playerGravity and playerGravity > 0 and params then
 		local estTime = disp.Magnitude / projectileSpeed
 		local fall    = (q * estTime) - (0.5 * playerGravity * estTime * estTime)
 		local horiz   = targetVelocity * estTime

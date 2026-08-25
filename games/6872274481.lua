@@ -48,6 +48,7 @@ local tween = vape.Libraries.tween
 local color = vape.Libraries.color
 local whitelist = vape.Libraries.whitelist
 local prediction = vape.Libraries.prediction
+prediction.AirCompensation = false
 local getfontsize = vape.Libraries.getfontsize
 local getcustomasset = vape.Libraries.getcustomasset
 
@@ -3843,7 +3844,7 @@ run(function()
 						local aimVel = (plr[TargetPart.Value] and plr[TargetPart.Value].Velocity or plr.RootPart.Velocity)
 						if TargetPart.Value == 'Legs' or TargetPart.Value == 'Feet' or TargetPart.Value == 'Closest' or TargetPart.Value == 'Random' or TargetPart.Value == 'UpperTorso' then aimVel = plr.RootPart.Velocity end
 						local newlook = CFrame.new(offsetpos, aimPos) * CFrame.new(projmeta.projectile == 'owl_projectile' and Vector3.zero or Vector3.new(bedwars.BowConstantsTable.RelX, bedwars.BowConstantsTable.RelY, bedwars.BowConstantsTable.RelZ))
-						local calc = prediction.SolveTrajectory(newlook.p, projSpeed, gravity, aimPos, projmeta.projectile == 'telepearl' and Vector3.zero or aimVel, playerGravity, plr.HipHeight, plr.Jumping and 42.6 or nil, rayCheck)
+						local calc = prediction.SolveTrajectory(newlook.p, projSpeed, gravity, aimPos, projmeta.projectile == 'telepearl' and Vector3.zero or aimVel, playerGravity, plr.HipHeight, nil, rayCheck)
 						if calc then
 							targetinfo.Targets[plr] = tick() + 1
 							base.positionFrom = offsetpos
@@ -4095,9 +4096,9 @@ run(function()
 									local gravity = meta.gravitationalAcceleration or 196.2
 									local targetVel = ent.RootPart.Velocity
 									if AimPart.Value == 'Legs' or AimPart.Value == 'Feet' or AimPart.Value == 'Closest' or AimPart.Value == 'Random' or AimPart.Value == 'UpperTorso' then targetVel = ent.RootPart.Velocity end
-									local calc = prediction.SolveTrajectory(pos, projSpeed, gravity, aimPosRaw, targetVel, workspace.Gravity, ent.HipHeight, ent.Jumping and 42.6 or nil, rayCheck)
+									local calc = prediction.SolveTrajectory(pos, projSpeed, gravity, aimPosRaw, targetVel, workspace.Gravity, ent.HipHeight, nil, rayCheck)
 									if not calc and prediction.SolveTrajectoryWithAim then
-										calc = prediction.SolveTrajectoryWithAim(pos, projSpeed, gravity, ent, AimPart.Value, targetVel, workspace.Gravity, ent.HipHeight, ent.Jumping and 42.6 or nil, rayCheck)
+										calc = prediction.SolveTrajectoryWithAim(pos, projSpeed, gravity, ent, AimPart.Value, targetVel, workspace.Gravity, ent.HipHeight, nil, rayCheck)
 									end
 									if calc then
 										targetinfo.Targets[ent] = tick() + 1
@@ -5369,7 +5370,7 @@ run(function()
 				})
 	
 				if plr then
-					local calc = prediction.SolveTrajectory(origin, 100, 20, plr.RootPart.Position, plr.RootPart.Velocity, workspace.Gravity, plr.HipHeight, plr.Jumping and 42.6 or nil)
+					local calc = prediction.SolveTrajectory(origin, 100, 20, plr.RootPart.Position, plr.RootPart.Velocity, workspace.Gravity, plr.HipHeight, nil)
 	
 					if calc then
 						for i, v in debug.getstack(2) do
