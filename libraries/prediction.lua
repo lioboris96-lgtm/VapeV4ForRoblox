@@ -198,7 +198,13 @@ function module.SolveTrajectory(origin, projectileSpeed, gravity, targetPos, tar
 		targetPos = targetPos + targetVelocity * math.min(ping, 1)
 	end
 	local disp = targetPos - origin
-	local p, q, r = targetVelocity.X, targetVelocity.Y, targetVelocity.Z
+	-- Horizontal-only target lead: the quartic assumes constant velocity, so a
+	-- jumping/falling target's raw Y velocity would launch the aim point into
+	-- the sky / into the ground. Default is to ignore target vertical motion
+	-- entirely and aim at their CURRENT height (body center). Set
+	-- module.VerticalLead = true to restore full-velocity lead.
+	local p, q_raw, r = targetVelocity.X, targetVelocity.Y, targetVelocity.Z
+	local q = module.VerticalLead == true and q_raw or 0
 	local h, j, k = disp.X, disp.Y, disp.Z
 	local l = -.5 * gravity
 
