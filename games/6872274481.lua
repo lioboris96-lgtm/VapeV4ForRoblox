@@ -1577,47 +1577,7 @@ run(function()
 	local AutoClicker
 	local CPS
 	local BlockCPS = {}
-	local ProjectileWhitelist
 	local Thread
-	local AutoClickerProjectileRemote = {InvokeServer = function() return true end}
-	local AutoClickerFireDelays = {}
-	task.spawn(function()
-		pcall(function() AutoClickerProjectileRemote = bedwars.Client:Get(remotes.FireProjectile).instance end)
-	end)
-
-	local function getProjectileForTool(toolName)
-		local meta = toolName and bedwars.ItemMeta[toolName]
-		if not meta then return end
-		if meta.projectileSource then return meta.projectileSource, toolName end
-		if meta.multiProjectileSource then
-			for _, src in pairs(meta.multiProjectileSource) do return src, toolName end
-		end
-	end
-
-	local function isWhitelistedProjectile(toolName)
-		if not ProjectileWhitelist then return false end
-		local meta = bedwars.ItemMeta[toolName]
-		if not meta then return false end
-		if meta.projectileSource then
-			local ammoTypes = meta.projectileSource.ammoItemTypes or {}
-			for _, ammo in ipairs(ammoTypes) do
-				if table.find(ProjectileWhitelist.ListEnabled, ammo) then return true end
-			end
-			if #ammoTypes == 0 and table.find(ProjectileWhitelist.ListEnabled, toolName) then return true end
-		end
-		if meta.multiProjectileSource then
-			if table.find(ProjectileWhitelist.ListEnabled, toolName) then return true end
-			for spellName, src in pairs(meta.multiProjectileSource) do
-				if table.find(ProjectileWhitelist.ListEnabled, spellName) then return true end
-				if src.ammoItemTypes then
-					for _, a in ipairs(src.ammoItemTypes) do
-						if table.find(ProjectileWhitelist.ListEnabled, a) then return true end
-					end
-				end
-			end
-		end
-		return false
-	end
 
 	local function AutoClick()
 		if Thread then
@@ -1625,97 +1585,22 @@ run(function()
 		end
 
 		Thread = task.spawn(function()
-			local lastTool = store.hand and store.hand.tool and store.hand.tool.Name or nil
-			local initialTool = lastTool
 			repeat
 					if not bedwars.AppController or not bedwars.AppController:isLayerOpen(bedwars.UILayers.MAIN) then
-					local curTool = store.hand and store.hand.tool
-					local curToolName = curTool and curTool.Name or nil
-					local curType = store.hand and store.hand.toolType or nil
-					local justSwitched = curToolName ~= lastTool
-					if justSwitched then
-						lastTool = curToolName
-					end
 					local blockPlacer = bedwars.BlockPlacementController.blockPlacer
-					if curType == 'block' and blockPlacer then
+					if store.hand.toolType == 'block' and blockPlacer then
 						if (workspace:GetServerTimeNow() - bedwars.BlockCpsController.lastPlaceTimestamp) >= ((1 / 12) * 0.5) then
 							local mouseinfo = blockPlacer.clientManager:getBlockSelector():getMouseInfo(0)
 							if mouseinfo and mouseinfo.placementPosition == mouseinfo.placementPosition then
 								task.spawn(blockPlacer.placeBlock, blockPlacer, mouseinfo.placementPosition)
 							end
 						end
-					elseif curToolName and isWhitelistedProjectile(curToolName) and justSwitched then
-						local projSrc, ammoType = getProjectileForTool(curToolName)
-						if projSrc then
-							local ammo = nil
-							if projSrc.ammoItemTypes and #projSrc.ammoItemTypes > 0 then
-								for _, a in ipairs(projSrc.ammoItemTypes) do
-									for _, it in ipairs(store.inventory.inventory.items) do
-										if it.itemType == a then ammo = a break end
-									end
-									if ammo then break end
-								end
-								ammo = ammo or projSrc.ammoItemTypes[1]
-							else
-								ammo = curToolName
-							end
-							local cooldownId = projSrc.cooldownId or (curToolName .. "-proj-source")
-							-- allow immediate fire on switch, wait a tick for tool to equip
-							if justSwitched then task.wait(0.06) end
-							if justSwitched or (AutoClickerFireDelays[cooldownId] or 0) < tick() then
-								local projectile = projSrc.projectileType(ammo)
-								local meta = projectile and bedwars.ProjectileMeta[projectile]
-								if meta and projectile then
-									local origin = entitylib.character.RootPart.Position
-									local cam = workspace.CurrentCamera
-									local dir = cam and cam.CFrame.LookVector or Vector3.new(0,0,-1)
-									local projSpeed = meta.launchVelocity
-									local shootPos = (CFrame.new(origin, origin + dir) * CFrame.new(Vector3.new(-bedwars.BowConstantsTable.RelX, -bedwars.BowConstantsTable.RelY, -bedwars.BowConstantsTable.RelZ))).Position
-									local id = httpService:GenerateGUID(true)
-									local itemMetaAC = bedwars.ItemMeta[curToolName]
-									local drawSecAC = (itemMetaAC and itemMetaAC.maxStrengthChargeSec and itemMetaAC.maxStrengthChargeSec > 0) and itemMetaAC.maxStrengthChargeSec or 0.1
-									bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPos, id, dir * projSpeed, {drawDurationSeconds = drawSecAC})
-									local tp = projSrc.thirdPerson and projSrc.thirdPerson.fireAnimation
-									if tp and tp ~= 0 then pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, tp) end) end
-									local fp = projSrc.firstPerson and projSrc.firstPerson.fireAnimation
-									if fp and fp ~= 0 then pcall(function() bedwars.ViewmodelController:playAnimation(fp, {fadeTime = 0.12}) end) end
-									if not tp and not fp then
-										if curToolName == 'spear' or curToolName == 'sand_spear' or curToolName == 'harpoon' then
-											pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, 82) end)
-										else
-											pcall(function() bedwars.ViewmodelController:playAnimation(14, {fadeTime = 0.12}) end)
-											pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, 5) end)
-										end
-									end
-									local res = AutoClickerProjectileRemote:InvokeServer(curTool, ammo, projectile, shootPos, origin, dir * projSpeed, id, {drawDurationSeconds = drawSecAC, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
-									if not res then
-										AutoClickerFireDelays[cooldownId] = tick() + 0.2
-									else
-										local cd = projSrc.fireDelaySec or 0.5
-										pcall(function()
-											local Knit = require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient
-											local cc = Knit.Controllers.CooldownController
-											if cc and cc.setOnCooldown then cc:setOnCooldown(cooldownId, cd) end
-										end)
-										AutoClickerFireDelays[cooldownId] = tick() + cd
-										local snd = projSrc.launchSound and projSrc.launchSound[math.random(1, #projSrc.launchSound)] or nil
-										if snd then pcall(function() bedwars.SoundManager:playSound(snd) end) end
-									end
-								end
-							end
-						end
-					elseif curType == 'sword' or (curTool and bedwars.ItemMeta[curTool.Name] and bedwars.ItemMeta[curTool.Name].sword) then
+					elseif store.hand.toolType == 'sword' then
 						bedwars.SwordController:swingSwordAtMouse(0.39)
-					else
-						-- fallback for other tools via sword swing if they have sword meta, else generic click
-						if curTool and bedwars.ItemMeta[curTool.Name] and bedwars.ItemMeta[curTool.Name].sword then
-							bedwars.SwordController:swingSwordAtMouse(0.39)
-						end
 					end
 				end
 
-				local curCPS = (store.hand.toolType == 'block' and BlockCPS or CPS).GetRandomValue()
-				task.wait(1 / curCPS)
+				task.wait(1 / (store.hand.toolType == 'block' and BlockCPS or CPS).GetRandomValue())
 			until not AutoClicker.Enabled
 		end)
 	end
@@ -1780,51 +1665,6 @@ run(function()
 		DefaultMin = 12,
 		DefaultMax = 12,
 		Darker = true
-	})
-	ProjectileWhitelist = AutoClicker:CreateTextList({
-		Name = 'Projectiles',
-		Default = {},
-		Tooltip = 'Projectiles to fire via remote when switching while holding (sword -> bow etc.)'
-	})
-	AutoClicker:CreateButton({
-		Name = 'Add Held Projectile',
-		Function = function()
-			local tool = store.hand and store.hand.tool
-			if not tool then return end
-			local meta = bedwars.ItemMeta[tool.Name]
-			local ammo = tool.Name
-			if meta and meta.projectileSource and meta.projectileSource.ammoItemTypes and #meta.projectileSource.ammoItemTypes > 0 then
-				for _, it in ipairs(store.inventory.inventory.items) do
-					if table.find(meta.projectileSource.ammoItemTypes, it.itemType) then ammo = it.itemType break end
-				end
-				if ammo == tool.Name then ammo = meta.projectileSource.ammoItemTypes[1] end
-			elseif meta and meta.multiProjectileSource then
-				ammo = tool.Name
-			end
-			if not table.find(ProjectileWhitelist.ListEnabled, ammo) then
-				ProjectileWhitelist:ChangeValue(ammo)
-			end
-		end
-	})
-	AutoClicker:CreateButton({
-		Name = 'Remove Held Projectile',
-		Function = function()
-			local tool = store.hand and store.hand.tool
-			if not tool then return end
-			local meta = bedwars.ItemMeta[tool.Name]
-			local ammo = tool.Name
-			if meta and meta.projectileSource and meta.projectileSource.ammoItemTypes and #meta.projectileSource.ammoItemTypes > 0 then
-				for _, it in ipairs(store.inventory.inventory.items) do
-					if table.find(meta.projectileSource.ammoItemTypes, it.itemType) then ammo = it.itemType break end
-				end
-				if ammo == tool.Name then ammo = meta.projectileSource.ammoItemTypes[1] end
-			end
-			if table.find(ProjectileWhitelist.ListEnabled, ammo) then
-				ProjectileWhitelist:ChangeValue(ammo)
-			elseif table.find(ProjectileWhitelist.ListEnabled, tool.Name) then
-				ProjectileWhitelist:ChangeValue(tool.Name)
-			end
-		end
 	})
 end)
 	
