@@ -48,7 +48,6 @@ local tween = vape.Libraries.tween
 local color = vape.Libraries.color
 local whitelist = vape.Libraries.whitelist
 local prediction = vape.Libraries.prediction
-prediction.AirCompensation = false
 local getfontsize = vape.Libraries.getfontsize
 local getcustomasset = vape.Libraries.getcustomasset
 
@@ -1771,7 +1770,7 @@ run(function()
             shopId = shopId
         }):andThen(function(suc)
             if not suc then return end
-            pcall(function() bedwars.SoundManager:playSound(bedwars.SoundList.BEDWARS_PURCHASE_ITEM) end)
+            bedwars.SoundManager:playSound(bedwars.SoundList.BEDWARS_PURCHASE_ITEM)
             bedwars.Store:dispatch({
                 type = 'BedwarsAddItemPurchased',
                 itemType = itemType
@@ -3630,10 +3629,9 @@ run(function()
 				old = bedwars.ProjectileController.calculateImportantLaunchValues
 				bedwars.ProjectileController.calculateImportantLaunchValues = function(...)
 					local self, projmeta, worldmeta, origin, shootpos = ...
-					local base = old(...)
 
 					if table.find(IgnoreProjectiles.ListEnabled, projmeta.projectile) then
-						return base
+						return old(...)
 					end
 
 					local plr = entitylib.EntityMouse({
@@ -3648,17 +3646,17 @@ run(function()
 					if plr then
 						local pos = shootpos or self:getLaunchPosition(origin)
 						if not pos then
-							return base
+							return old(...)
 						end
 	
 						if (not OtherProjectiles.Enabled) and not projmeta.projectile:find('arrow') then
-							return base
+							return old(...)
 						end
 	
 						local meta = projmeta:getProjectileMeta()
 						local lifetime = (worldmeta and meta.predictionLifetimeSec or meta.lifetimeSec or 3)
-						local gravity = base.gravitationalAcceleration or ((meta.gravitationalAcceleration or 196.2) * projmeta.gravityMultiplier)
-						local projSpeed = base.initialVelocity.Magnitude
+						local gravity = (meta.gravitationalAcceleration or 196.2) * projmeta.gravityMultiplier
+						local projSpeed = (meta.launchVelocity or 100)
 						local offsetpos = pos + (projmeta.projectile == 'owl_projectile' and Vector3.zero or projmeta.fromPositionOffset)
 						local char = plr.Character
 						local balloons = char and char:GetAttribute('InflatedBalloons')
@@ -3680,20 +3678,21 @@ run(function()
 							end
 						end
 	
-						local aimPos = prediction.GetAimPosition and prediction.GetAimPosition(plr, TargetPart.Value, offsetpos) or (plr[TargetPart.Value] and plr[TargetPart.Value].Position or plr.RootPart.Position)
-						local aimVel = (plr[TargetPart.Value] and plr[TargetPart.Value].Velocity or plr.RootPart.Velocity)
-						if TargetPart.Value == 'Legs' or TargetPart.Value == 'Feet' or TargetPart.Value == 'Closest' or TargetPart.Value == 'Random' or TargetPart.Value == 'UpperTorso' then aimVel = plr.RootPart.Velocity end
-						local newlook = CFrame.new(offsetpos, aimPos) * CFrame.new(projmeta.projectile == 'owl_projectile' and Vector3.zero or Vector3.new(bedwars.BowConstantsTable.RelX, bedwars.BowConstantsTable.RelY, bedwars.BowConstantsTable.RelZ))
-						local calc = prediction.SolveTrajectory(newlook.p, projSpeed, gravity, aimPos, projmeta.projectile == 'telepearl' and Vector3.zero or aimVel, playerGravity, plr.HipHeight, nil, rayCheck)
+						local newlook = CFrame.new(offsetpos, plr[TargetPart.Value].Position) * CFrame.new(projmeta.projectile == 'owl_projectile' and Vector3.zero or Vector3.new(bedwars.BowConstantsTable.RelX, bedwars.BowConstantsTable.RelY, bedwars.BowConstantsTable.RelZ))
+						local calc = prediction.SolveTrajectory(newlook.p, projSpeed, gravity, plr[TargetPart.Value].Position, projmeta.projectile == 'telepearl' and Vector3.zero or plr[TargetPart.Value].Velocity, playerGravity, plr.HipHeight, plr.Jumping and 42.6 or nil, rayCheck)
 						if calc then
 							targetinfo.Targets[plr] = tick() + 1
-							base.positionFrom = offsetpos
-											base.initialVelocity = CFrame.new(newlook.Position, calc).LookVector * base.initialVelocity.Magnitude
-											return base
+							return {
+								initialVelocity = CFrame.new(newlook.Position, calc).LookVector * projSpeed,
+								positionFrom = offsetpos,
+								deltaT = lifetime,
+								gravitationalAcceleration = gravity,
+								drawDurationSeconds = 5
+							}
 						end
 					end
 	
-					return base
+					return old(...)
 				end
 			else
 				bedwars.ProjectileController.calculateImportantLaunchValues = old
@@ -3707,7 +3706,7 @@ run(function()
 	})
 	TargetPart = ProjectileAimbot:CreateDropdown({
 		Name = 'Part',
-		List = {'RootPart', 'Head', 'Legs', 'Feet', 'UpperTorso', 'Closest', 'Random'}
+		List = {'RootPart', 'Head'}
 	})
 	FOV = ProjectileAimbot:CreateSlider({
 		Name = 'FOV',
@@ -3729,23 +3728,14 @@ run(function()
 	local ProjectileAura
 	local Targets
 	local Range
-	local CloseRange
-	local AimPart
 	local List
 	local ToolCheck
-	local Charge
-	local ChargeDuration
 	local rayCheck = RaycastParams.new()
 	rayCheck.FilterType = Enum.RaycastFilterType.Include
 	local projectileRemote = {InvokeServer = function() end}
 	local FireDelays = {}
-	local CooldownController
 	task.spawn(function()
 		projectileRemote = bedwars.Client:Get(remotes.FireProjectile).instance
-		pcall(function()
-			local Knit = require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient
-			CooldownController = Knit.Controllers.CooldownController
-		end)
 	end)
 	
 	local function getAmmo(check)
@@ -3755,126 +3745,19 @@ run(function()
 			end
 		end
 	end
-
-	local function getCooldownId(itemMeta, itemType)
-		return itemMeta.cooldownId or (itemType .. "-proj-source")
-	end
-
-	local function getHoldAnims(itemMeta, itemType)
-		if itemType == 'spear' or itemType == 'sand_spear' or itemType == 'harpoon' then
-			return {84}, {}
-		end
-		local tpDraw = itemMeta.thirdPerson and itemMeta.thirdPerson.drawAnimation
-		local fpDraw = itemMeta.firstPerson and itemMeta.firstPerson.drawAnimation
-		local holdTp, holdFp = {}, {}
-		if tpDraw and tpDraw ~= 0 then table.insert(holdTp, tpDraw) end
-		if fpDraw and fpDraw ~= 0 then table.insert(holdFp, fpDraw) end
-		return holdTp, holdFp
-	end
-
-	local function getShootAnims(itemMeta, itemType)
-		local fp = itemMeta.firstPerson and itemMeta.firstPerson.fireAnimation
-		local tp = itemMeta.thirdPerson and itemMeta.thirdPerson.fireAnimation
-		local hasFp = fp and fp ~= 0
-		local hasTp = tp and tp ~= 0
-		if hasFp or hasTp then
-			return hasFp and fp or nil, hasTp and tp or nil, true
-		end
-		if itemType == 'spear' or itemType == 'sand_spear' or itemType == 'harpoon' then
-			return nil, 82, true
-		end
-		return 14, 5, false
-	end
 	
 	local function getProjectiles()
 		local items = {}
 		for _, item in store.inventory.inventory.items do
-			local baseMeta = bedwars.ItemMeta[item.itemType]
-			if not baseMeta then continue end
-			local proj = baseMeta.projectileSource
-			if proj then
-				local ammo = getAmmo(proj)
-				local whitelisted = false
-				if ammo and table.find(List.ListEnabled, ammo) then whitelisted = true end
-				if not whitelisted and (not proj.ammoItemTypes or #proj.ammoItemTypes == 0) and table.find(List.ListEnabled, item.itemType) then
-					ammo = item.itemType
-					whitelisted = true
-				end
-				if whitelisted then
-					local ok, projType = pcall(function() return proj.projectileType(ammo) end)
-					if ok and projType then
-						local holdTp, holdFp = getHoldAnims(proj, item.itemType)
-						local shootFp, shootTp, hasCustom = getShootAnims(proj, item.itemType)
-						table.insert(items, {
-							item,
-							ammo,
-							projType,
-							proj,
-							shootFp,
-							shootTp,
-							holdTp,
-							holdFp,
-							hasCustom
-						})
-					end
-				end
-			end
-			if baseMeta.multiProjectileSource then
-				if item.itemType == 'mage_spellbook' then
-					local whitelisted = table.find(List.ListEnabled, item.itemType)
-					if whitelisted then
-						local src = nil
-						pcall(function()
-							local Knit = require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient
-							local ctrl = Knit.Controllers.MageSpellbookController
-							if ctrl and ctrl.getNextElementProjectile then
-								src = ctrl:getNextElementProjectile()
-								if not src then src = ctrl:getProjectileSource({itemType = item.itemType}) end
-							end
-						end)
-						if not src then src = baseMeta.multiProjectileSource['mage_spell_base'] end
-						if src then
-							local projType
-							pcall(function() projType = src.projectileType(nil) end)
-							if projType then
-								local holdTp, holdFp = getHoldAnims(src, item.itemType)
-								local shootFp, shootTp, hasCustom = getShootAnims(src, item.itemType)
-								table.insert(items, {item, 'mage_spell', projType, src, shootFp, shootTp, holdTp, holdFp, hasCustom})
-							end
-						end
-					end
-				else
-					for spellName, src in pairs(baseMeta.multiProjectileSource) do
-						local ammo = nil
-						if src.ammoItemTypes and #src.ammoItemTypes > 0 then
-							ammo = getAmmo(src)
-						end
-						local whitelisted = table.find(List.ListEnabled, spellName) or table.find(List.ListEnabled, item.itemType) or (ammo and table.find(List.ListEnabled, ammo))
-						if whitelisted then
-							local projType
-							pcall(function() projType = src.projectileType(ammo or spellName) end)
-							if not projType then
-								pcall(function() projType = src.projectileType(nil) end)
-							end
-							if projType then
-								local holdTp, holdFp = getHoldAnims(src, item.itemType)
-								local shootFp, shootTp, hasCustom = getShootAnims(src, item.itemType)
-								table.insert(items, {
-									item,
-									ammo or spellName,
-									projType,
-									src,
-									shootFp,
-									shootTp,
-									holdTp,
-									holdFp,
-									hasCustom
-								})
-								break
-							end
-						end
-					end
-				end
+			local proj = bedwars.ItemMeta[item.itemType].projectileSource
+			local ammo = proj and getAmmo(proj)
+			if ammo and table.find(List.ListEnabled, ammo) then
+				table.insert(items, {
+					item,
+					ammo,
+					proj.projectileType(ammo),
+					proj
+				})
 			end
 		end
 		return items
@@ -3896,201 +3779,55 @@ run(function()
 	
 						if ent then
 							local pos = entitylib.character.RootPart.Position
-							local aimPosRaw = prediction.GetAimPosition and prediction.GetAimPosition(ent, AimPart.Value, pos) or ent.RootPart.Position
-							local distToEnt = (aimPosRaw - pos).Magnitude
 							for _, data in getProjectiles() do
-								local item, ammo, projectile, itemMeta, shootFp, shootTp, holdTp, holdFp = unpack(data)
+								local item, ammo, projectile, itemMeta = unpack(data)
 								if ToolCheck.Enabled and item.tool ~= store.hand.tool then
 									continue
 								end
-								local cooldownId = getCooldownId(itemMeta, item.itemType)
-								if (FireDelays[cooldownId] or 0) >= tick() then continue end
-								local onCd = false
-								if CooldownController and CooldownController.isOnCooldown then
-									pcall(function() onCd = CooldownController:isOnCooldown(cooldownId) end)
-								else
-									pcall(function()
-										local Knit = require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient
-										local cd = Knit.Controllers.CooldownController
-										if cd and cd.isOnCooldown then onCd = cd:isOnCooldown(cooldownId) end
-									end)
-								end
-								if onCd then continue end
-								rayCheck.FilterDescendantsInstances = {workspace.Map}
-								local meta = bedwars.ProjectileMeta[projectile]
-								if not meta then continue end
-									local isChargeable = itemMeta.maxStrengthChargeSec and itemMeta.maxStrengthChargeSec > 0 and item.itemType ~= 'mage_spellbook'
-									local shouldCharge = Charge.Enabled and isChargeable and distToEnt > CloseRange.Value
-									local chargeTime = 0
-									local velocityMult = 1
-									if isChargeable then
-										local minScalar = itemMeta.minStrengthScalar or 0.3
-										if shouldCharge then
-											chargeTime = math.min(ChargeDuration.Value, itemMeta.maxStrengthChargeSec)
-											velocityMult = 1
-										else
-											velocityMult = minScalar
-										end
-									end
-									local projSpeed = meta.launchVelocity * velocityMult
-									local gravity = meta.gravitationalAcceleration or 196.2
-									local targetVel = ent.RootPart.Velocity
-									if AimPart.Value == 'Legs' or AimPart.Value == 'Feet' or AimPart.Value == 'Closest' or AimPart.Value == 'Random' or AimPart.Value == 'UpperTorso' then targetVel = ent.RootPart.Velocity end
-									local calc = prediction.SolveTrajectory(pos, projSpeed, gravity, aimPosRaw, targetVel, workspace.Gravity, ent.HipHeight, nil, rayCheck)
-									if not calc and prediction.SolveTrajectoryWithAim then
-										calc = prediction.SolveTrajectoryWithAim(pos, projSpeed, gravity, ent, AimPart.Value, targetVel, workspace.Gravity, ent.HipHeight, nil, rayCheck)
-									end
+								if (FireDelays[item.itemType] or 0) < tick() then
+									rayCheck.FilterDescendantsInstances = {workspace.Map}
+									local meta = bedwars.ProjectileMeta[projectile]
+									local projSpeed, gravity = meta.launchVelocity, meta.gravitationalAcceleration or 196.2
+									local calc = prediction.SolveTrajectory(pos, projSpeed, gravity, ent.RootPart.Position, ent.RootPart.Velocity, workspace.Gravity, ent.HipHeight, ent.Jumping and 42.6 or nil, rayCheck)
 									if calc then
 										targetinfo.Targets[ent] = tick() + 1
 										local switched = switchItem(item.tool)
 	
 										task.spawn(function()
-											local slowHandle
-											local chargeAnims = {}
-											if shouldCharge and chargeTime > 0 then
-												pcall(function()
-													local mult = itemMeta.walkSpeedMultiplier
-													if not mult or mult == 1 or mult == 0 then
-														local m = bedwars.ProjectileMeta[projectile]
-														if m and m.getProjectileOverridesFunction then
-															local ov = m.getProjectileOverridesFunction(lplr)
-															if ov and ov.walkSpeedMultiplierOverride and ov.walkSpeedMultiplierOverride ~= 1 then
-																mult = ov.walkSpeedMultiplierOverride
-															end
-														end
-													end
-													mult = mult or 0.35
-													local sc = bedwars.SprintController
-													if not sc then
-														local Knit = require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient
-														sc = Knit.Controllers.SprintController
-													end
-													if sc and sc.getMovementStatusModifier then
-														slowHandle = sc:getMovementStatusModifier():addModifier({blockSprint = true, moveSpeedMultiplier = mult})
-													end
-												end)
-												pcall(function()
-													if #holdTp > 0 or #holdFp > 0 then
-														for _, animId in ipairs(holdTp) do
-															local t = bedwars.GameAnimationUtil:playAnimation(lplr, animId)
-															if t then table.insert(chargeAnims, t) end
-														end
-														for _, animId in ipairs(holdFp) do
-															local vt = bedwars.ViewmodelController:playAnimation(animId, {fadeTime = 0.12})
-															if vt then table.insert(chargeAnims, vt) end
-														end
-														if item.itemType == 'spear' or item.itemType == 'sand_spear' or item.itemType == 'harpoon' then
-															if chargeAnims[1] then
-																chargeAnims[1].Stopped:Connect(function()
-																	local idle = bedwars.GameAnimationUtil:playAnimation(lplr, 83, {looped = true})
-																	if idle then table.insert(chargeAnims, idle) end
-																end)
-															end
-														end
-													else
-														if itemMeta.thirdPerson and itemMeta.thirdPerson.drawAnimation and itemMeta.thirdPerson.drawAnimation ~= 0 then
-															local t = bedwars.GameAnimationUtil:playAnimation(lplr, itemMeta.thirdPerson.drawAnimation)
-															if t then table.insert(chargeAnims, t) end
-														end
-														local fpDraw = itemMeta.firstPerson and itemMeta.firstPerson.drawAnimation
-														if fpDraw and fpDraw ~= 0 then
-															local vt = bedwars.ViewmodelController:playAnimation(fpDraw, {fadeTime = 0.12})
-															if vt then table.insert(chargeAnims, vt) end
-														end
-													end
-													if itemMeta.chargeBeginSound then
-														local snd = itemMeta.chargeBeginSound[math.random(1, #itemMeta.chargeBeginSound)]
-														if snd then bedwars.SoundManager:playSound(snd) end
-													else
-														local bowDrawSound = itemMeta.drawSound
-														if bowDrawSound then
-															local s = bowDrawSound[math.random(1, #bowDrawSound)]
-															if s then bedwars.SoundManager:playSound(s) end
-														end
-													end
-												end)
-												task.wait(chargeTime)
-												pcall(function()
-													for _, a in ipairs(chargeAnims) do pcall(function() a:Stop() end) end
-													if not (item.itemType == 'spear' or item.itemType == 'sand_spear' or item.itemType == 'harpoon') then
-														local aim = itemMeta.thirdPerson and itemMeta.thirdPerson.aimAnimation
-														if aim and aim ~= 0 then
-															bedwars.GameAnimationUtil:playAnimation(lplr, aim)
-														elseif #holdTp == 0 then
-															local holdAim = holdTp[2]
-															if holdAim then bedwars.GameAnimationUtil:playAnimation(lplr, holdAim) end
-														end
-													end
-												end)
-											end
 											local dir, id = CFrame.lookAt(pos, calc).LookVector, httpService:GenerateGUID(true)
 											local shootPosition = (CFrame.new(pos, calc) * CFrame.new(Vector3.new(-bedwars.BowConstantsTable.RelX, -bedwars.BowConstantsTable.RelY, -bedwars.BowConstantsTable.RelZ))).Position
-											local vel = dir * projSpeed
-											local drawSec = chargeTime
-											bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPosition, id, vel, {drawDurationSeconds = drawSec})
-											local played = false
-											if shootFp and shootFp ~= 0 then
-												played = true
-												pcall(function() bedwars.ViewmodelController:playAnimation(shootFp, {fadeTime = 0.12}) end)
+											bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPosition, id, dir * projSpeed, {drawDurationSeconds = 1})
+
+											local fp = itemMeta.firstPerson and itemMeta.firstPerson.fireAnimation
+											if fp and fp ~= 0 then
+												bedwars.ViewmodelController:playAnimation(fp, {fadeTime = 0.12})
 											end
-											if shootTp and shootTp ~= 0 then
-												played = true
-												pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, shootTp) end)
+											local tp = itemMeta.thirdPerson and itemMeta.thirdPerson.fireAnimation
+											if tp and tp ~= 0 then
+												bedwars.GameAnimationUtil:playAnimation(lplr, tp)
 											end
-											if not played then
-												pcall(function() bedwars.ViewmodelController:playAnimation(14, {fadeTime = 0.12}) end)
-												pcall(function() bedwars.GameAnimationUtil:playAnimation(lplr, 5) end)
-											end
-											local res = projectileRemote:InvokeServer(item.tool, ammo, projectile, shootPosition, pos, vel, id, {drawDurationSeconds = drawSec, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
-											if slowHandle then pcall(function() slowHandle:Destroy() end) for _, a in ipairs(chargeAnims) do pcall(function() a:Stop() end) end end
+
+											local res = projectileRemote:InvokeServer(item.tool, ammo, projectile, shootPosition, pos, dir * projSpeed, id, {drawDurationSeconds = 1, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
 											if not res then
-												pcall(function()
-													if bedwars.ProjectileController.destroyProjectile then
-														bedwars.ProjectileController:destroyProjectile(id)
-													elseif bedwars.ProjectileController.removeProjectile then
-														bedwars.ProjectileController:removeProjectile(id)
-													end
-												end)
-												pcall(function()
-													for _, v in ipairs(workspace:GetDescendants()) do
-														if v:GetAttribute('ProjectileId') == id or v:GetAttribute('RefId') == id then
-															v:Destroy()
-														end
-													end
-												end)
-												FireDelays[cooldownId] = tick() + (itemMeta.fireDelaySec or 0.5) * 0.5
+												FireDelays[item.itemType] = tick()
 											else
 												local shoot = itemMeta.launchSound
 												shoot = shoot and shoot[math.random(1, #shoot)] or nil
 												if shoot then
-													pcall(function() bedwars.SoundManager:playSound(shoot) end)
+													bedwars.SoundManager:playSound(shoot)
 												end
 											end
 										end)
 	
-										local cooldown = itemMeta.fireDelaySec or 0.5
-										pcall(function()
-											local ok, res = pcall(function() return bedwars.Client:Get(remotes.ProjectileCooldown or 'ProjectileCooldownModifierCheck') end)
-											if ok and res and res.CallServer then cooldown = res:CallServer({cooldown = cooldown}).cooldown or cooldown end
-											local ev = bedwars.Client and bedwars.Client:Get('ProjectileCooldownModifierCheck')
-											if ev and ev.CallServer then cooldown = ev:CallServer({cooldown = cooldown}).cooldown or cooldown end
-										end)
-										pcall(function()
-											local Knit = require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient
-											local cd = Knit.Controllers.CooldownController
-											if cd and cd.setOnCooldown then
-												cd:setOnCooldown(cooldownId, cooldown + (shouldCharge and chargeTime or 0))
-											end
-										end)
-										FireDelays[cooldownId] = tick() + cooldown + (shouldCharge and chargeTime or 0)
+										FireDelays[item.itemType] = tick() + itemMeta.fireDelaySec
 										if switched then
 											task.wait(0.05)
 										end
-										break
 									end
 								end
 							end
 						end
+					end
 					task.wait(0.1)
 				until not ProjectileAura.Enabled
 			end
@@ -4112,77 +3849,6 @@ run(function()
 		Default = 50,
 		Suffix = function(val)
 			return val == 1 and 'stud' or 'studs'
-		end
-	})
-	CloseRange = ProjectileAura:CreateSlider({
-		Name = 'No Charge Range',
-		Min = 0,
-		Max = 50,
-		Default = 12,
-		Tooltip = 'Within this range projectiles fire instantly without charging',
-		Suffix = function(val)
-			return val == 1 and 'stud' or 'studs'
-		end
-	})
-	AimPart = ProjectileAura:CreateDropdown({
-		Name = 'Aim Part',
-		List = {'RootPart', 'Head', 'Legs', 'Feet', 'UpperTorso', 'Closest', 'Random'},
-		Default = 'RootPart',
-		Tooltip = 'Where to aim projectiles'
-	})
-	Charge = ProjectileAura:CreateToggle({
-		Name = 'Charge',
-		Default = true,
-		Tooltip = 'Charge projectiles that support charging for full power'
-	})
-	ChargeDuration = ProjectileAura:CreateSlider({
-		Name = 'Charge Time',
-		Min = 0.1,
-		Max = 2,
-		Default = 0.65,
-		Decimal = 100,
-		Tooltip = 'How long to charge (capped by projectile max charge)',
-		Suffix = function(val) return string.format('%.2fs', val) end
-	})
-	ProjectileAura:CreateButton({
-		Name = 'Add Held Item',
-		Function = function()
-			local tool = store.hand and store.hand.tool
-			if not tool then return end
-			local meta = bedwars.ItemMeta[tool.Name]
-			local ammo = tool.Name
-			if meta and meta.projectileSource and meta.projectileSource.ammoItemTypes and #meta.projectileSource.ammoItemTypes > 0 then
-				local ok, res = pcall(function() return meta.projectileSource.ammoItemTypes[1] end)
-				if ok and res then ammo = res end
-				local check = meta.projectileSource.ammoItemTypes[1]
-				for _, it in store.inventory.inventory.items do
-					if table.find(meta.projectileSource.ammoItemTypes, it.itemType) then ammo = it.itemType break end
-				end
-				if not check then ammo = tool.Name end
-			end
-			if not table.find(List.ListEnabled, ammo) then
-				List:ChangeValue(ammo)
-			end
-		end
-	})
-	ProjectileAura:CreateButton({
-		Name = 'Remove Held Item',
-		Function = function()
-			local tool = store.hand and store.hand.tool
-			if not tool then return end
-			local meta = bedwars.ItemMeta[tool.Name]
-			local ammo = tool.Name
-			if meta and meta.projectileSource and meta.projectileSource.ammoItemTypes and #meta.projectileSource.ammoItemTypes > 0 then
-				for _, it in store.inventory.inventory.items do
-					if table.find(meta.projectileSource.ammoItemTypes, it.itemType) then ammo = it.itemType break end
-				end
-				if ammo == tool.Name and meta.projectileSource.ammoItemTypes[1] then ammo = meta.projectileSource.ammoItemTypes[1] end
-			end
-			if table.find(List.ListEnabled, ammo) then
-				List:ChangeValue(ammo)
-			elseif table.find(List.ListEnabled, tool.Name) then
-				List:ChangeValue(tool.Name)
-			end
 		end
 	})
 	ToolCheck = ProjectileAura:CreateToggle({
@@ -4481,15 +4147,6 @@ run(function()
 	local Folder = Instance.new('Folder')
 	Folder.Parent = vape.gui
 	local methodused
-
-	local function elevate(func)
-		return function(...)
-			if setthreadidentity then pcall(setthreadidentity, 8) end
-			if setidentity then pcall(setidentity, 8) end
-			local suc, err = pcall(func, ...)
-			if not suc and err then warn('[Vape] NameTags: '..tostring(err)) end
-		end
-	end
 	
 	local Added = {
 		Normal = function(ent)
@@ -4727,13 +4384,7 @@ run(function()
 			end
 		end
 	}
-
-	for name, fn in pairs(Added) do Added[name] = elevate(fn) end
-	for name, fn in pairs(Removed) do Removed[name] = elevate(fn) end
-	if Updated then for name, fn in pairs(Updated) do Updated[name] = elevate(fn) end end
-	for name, fn in pairs(ColorFunc) do ColorFunc[name] = elevate(fn) end
-	for name, fn in pairs(Loop) do Loop[name] = elevate(fn) end
-
+	
 	NameTags = vape.Categories.Render:CreateModule({
 		Name = 'NameTags',
 		Function = function(callback)
@@ -5210,7 +4861,7 @@ run(function()
 				})
 	
 				if plr then
-					local calc = prediction.SolveTrajectory(origin, 100, 20, plr.RootPart.Position, plr.RootPart.Velocity, workspace.Gravity, plr.HipHeight, nil)
+					local calc = prediction.SolveTrajectory(origin, 100, 20, plr.RootPart.Position, plr.RootPart.Velocity, workspace.Gravity, plr.HipHeight, plr.Jumping and 42.6 or nil)
 	
 					if calc then
 						for i, v in debug.getstack(2) do
@@ -7263,11 +6914,7 @@ run(function()
 			shopId = id
 		}):andThen(function(suc)
 			if suc then
-				pcall(function()
-					if bedwars.SoundManager and bedwars.SoundList and bedwars.SoundList.BEDWARS_PURCHASE_ITEM then
-						bedwars.SoundManager:playSound(bedwars.SoundList.BEDWARS_PURCHASE_ITEM)
-					end
-				end)
+				bedwars.SoundManager:playSound(bedwars.SoundList.BEDWARS_PURCHASE_ITEM)
 				bedwars.Store:dispatch({
 					type = 'BedwarsAddItemPurchased',
 					itemType = item.itemType
@@ -8497,7 +8144,6 @@ run(function()
 	local Wallcheck
 	local AutoTool
 	local customlist, parts = {}, {}
-	local legitCache = nil
 	
 	local function customHealthbar(self, blockRef, health, maxHealth, changeHealth, block)
 		if block:GetAttribute('NoHealthbar') then return end
@@ -8602,61 +8248,6 @@ run(function()
 	
 	local function attemptBreak(tab, localPosition)
 		if not tab then return end
-		if Wallcheck.Enabled then
-			if legitCache and table.find(tab, legitCache) then
-				local v = legitCache
-				if (v.Position - localPosition).Magnitude < Range.Value and bedwars.BlockController:isBlockBreakable({blockPosition = v.Position / 3}, lplr) and (SelfBreak.Enabled or v:GetAttribute('PlacedByUserId') ~= lplr.UserId) and (v:GetAttribute('BedShieldEndTime') or 0) <= workspace:GetServerTimeNow() and (not LimitItem.Enabled or (store.hand.tool and bedwars.ItemMeta[store.hand.tool.Name].breakBlock)) then
-					hit += 1
-					local target, path, endpos = bedwars.breakBlock(v, Effect.Enabled, Animation.Enabled, CustomHealth.Enabled and customHealthbar or nil, AutoTool.Enabled, Wallcheck.Enabled, breakmethods[Mode.Value])
-					if path then
-						local currentnode = target
-						for _, part in parts do
-							part.Position = currentnode or Vector3.zero
-							if currentnode then
-								part.BoxHandleAdornment.Color3 = currentnode == endpos and Color3.new(1, 0.2, 0.2) or currentnode == target and Color3.new(0.2, 0.2, 1) or Color3.new(0.2, 1, 0.2)
-							end
-							currentnode = path[currentnode]
-						end
-					end
-					task.wait(InstantBreak.Enabled and (store.damageBlockFail > tick() and 4.5 or 0) or BreakSpeed.Value)
-					return true
-				else
-					legitCache = nil
-				end
-			end
-			local closest, cdist = nil, math.huge
-			for _, v in tab do
-				if (v.Position - localPosition).Magnitude >= Range.Value then continue end
-				if not bedwars.BlockController:isBlockBreakable({blockPosition = v.Position / 3}, lplr) then continue end
-				if not SelfBreak.Enabled and v:GetAttribute('PlacedByUserId') == lplr.UserId then continue end
-				if (v:GetAttribute('BedShieldEndTime') or 0) > workspace:GetServerTimeNow() then continue end
-				if LimitItem.Enabled and not (store.hand.tool and bedwars.ItemMeta[store.hand.tool.Name].breakBlock) then continue end
-				local d = (v.Position - localPosition).Magnitude
-				if d < cdist then
-					closest = v
-					cdist = d
-				end
-			end
-			if closest then
-				legitCache = closest
-				hit += 1
-				local target, path, endpos = bedwars.breakBlock(closest, Effect.Enabled, Animation.Enabled, CustomHealth.Enabled and customHealthbar or nil, AutoTool.Enabled, Wallcheck.Enabled, breakmethods[Mode.Value])
-				if path then
-					local currentnode = target
-					for _, part in parts do
-						part.Position = currentnode or Vector3.zero
-						if currentnode then
-							part.BoxHandleAdornment.Color3 = currentnode == endpos and Color3.new(1, 0.2, 0.2) or currentnode == target and Color3.new(0.2, 0.2, 1) or Color3.new(0.2, 1, 0.2)
-						end
-						currentnode = path[currentnode]
-					end
-				end
-				task.wait(InstantBreak.Enabled and (store.damageBlockFail > tick() and 4.5 or 0) or BreakSpeed.Value)
-				return true
-			end
-			legitCache = nil
-			return false
-		end
 		for _, v in tab do
 			if (v.Position - localPosition).Magnitude < Range.Value and bedwars.BlockController:isBlockBreakable({blockPosition = v.Position / 3}, lplr) then
 				if not SelfBreak.Enabled and v:GetAttribute('PlacedByUserId') == lplr.UserId then continue end
