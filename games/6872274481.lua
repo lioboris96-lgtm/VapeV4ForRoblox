@@ -723,20 +723,39 @@ local function waitClientGet(remoteName, timeout)
 end
 run(function()
 	local KnitInit, Knit
+	local t0 = tick()
 	repeat
 		KnitInit, Knit = pcall(function()
-			local setup = lplr.PlayerScripts.TS.knit and lplr.PlayerScripts.TS.knit.setup
+			local knitMod = lplr.PlayerScripts.TS:FindFirstChild('knit')
+			local setup = knitMod and (knitMod:FindFirstChild('setup') or knitMod)
+			if typeof(setup) == 'Instance' and setup:IsA('ModuleScript') then
+				setup = require(setup).setup or require(setup)
+			end
 			if not setup then error('knit setup missing') end
 			local up = safeUpvalue(setup, 9, nil)
-			if up == nil then error('knit upvalue 9 missing') end
+			if up == nil then
+				for i = 1, 15 do
+					local cand = safeUpvalue(setup, i, nil)
+					if type(cand) == 'table' and (cand.Controllers or cand.Start) then
+						up = cand
+						break
+					end
+				end
+			end
+			if up == nil then error('knit upvalue missing') end
 			return up
 		end)
 		if KnitInit then break end
-		task.wait()
-	until KnitInit
+		task.wait(0.5)
+	until KnitInit or (tick() - t0) > 25
+	if not KnitInit then
+		warn('[Vape] Knit resolve failed after 25s, aborting bedwars init')
+		return
+	end
 
-	if not safeUpvalue(Knit.Start, 1, nil) then
-		repeat task.wait() until safeUpvalue(Knit.Start, 1, nil)
+	local t1 = tick()
+	while not safeUpvalue(Knit.Start, 1, nil) and (tick() - t1) < 25 do
+		task.wait(0.5)
 	end
 
 	local Flamework = require(replicatedStorage['rbxts_include']['node_modules']['@flamework'].core.out).Flamework
