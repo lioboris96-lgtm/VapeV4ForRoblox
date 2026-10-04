@@ -314,8 +314,10 @@ end
 
 local function getFunctionRange(func)
 	if not func then return nil end
+	local ok, consts = pcall(debug.getconstants, func)
+	if not ok or not consts then return nil end
 	local last = false
-	for _, v in debug.getconstants(func) do
+	for _, v in consts do
 		if v == 'maxActivationDistance' then
 			last = true
 		elseif last then
@@ -694,18 +696,47 @@ local function safeGetProto(func, index)
         return nil
     end
 end
+local function safeUpvalue(func, index, fallback)
+    if not func then return fallback end
+    local ok, res = pcall(debug.getupvalue, func, index)
+    if ok then return res end
+    return fallback
+end
+local function safeClientGet(remoteName)
+    if not remoteName or remoteName == '' then return nil end
+    if not bedwars.Client or not bedwars.Client.Get then return nil end
+    local ok, res = pcall(function()
+        return bedwars.Client:Get(remoteName)
+    end)
+    if ok and res then return res end
+    return nil
+end
+local function waitClientGet(remoteName, timeout)
+    timeout = timeout or 15
+    local t0 = tick()
+    while tick() - t0 < timeout do
+        local res = safeClientGet(remoteName)
+        if res and res.instance then return res end
+        task.wait(0.25)
+    end
+    return safeClientGet(remoteName)
+end
 run(function()
 	local KnitInit, Knit
 	repeat
 		KnitInit, Knit = pcall(function()
-			return debug.getupvalue(require(lplr.PlayerScripts.TS.knit).setup, 9)
+			local setup = lplr.PlayerScripts.TS.knit and lplr.PlayerScripts.TS.knit.setup
+			if not setup then error('knit setup missing') end
+			local up = safeUpvalue(setup, 9, nil)
+			if up == nil then error('knit upvalue 9 missing') end
+			return up
 		end)
 		if KnitInit then break end
 		task.wait()
 	until KnitInit
 
-	if not debug.getupvalue(Knit.Start, 1) then
-		repeat task.wait() until debug.getupvalue(Knit.Start, 1)
+	if not safeUpvalue(Knit.Start, 1, nil) then
+		repeat task.wait() until safeUpvalue(Knit.Start, 1, nil)
 	end
 
 	local Flamework = require(replicatedStorage['rbxts_include']['node_modules']['@flamework'].core.out).Flamework
@@ -730,7 +761,7 @@ run(function()
 		BlockController = require(replicatedStorage['rbxts_include']['node_modules']['@easy-games']['block-engine'].out).BlockEngine,
 		BlockEngine = require(lplr.PlayerScripts.TS.lib['block-engine']['client-block-engine']).ClientBlockEngine,
 		BlockPlacer = require(replicatedStorage['rbxts_include']['node_modules']['@easy-games']['block-engine'].out.client.placement['block-placer']).BlockPlacer,
-		BowConstantsTable = debug.getupvalue(Knit.Controllers.ProjectileController.enableBeam, 8),
+		BowConstantsTable = safeUpvalue(Knit.Controllers.ProjectileController and Knit.Controllers.ProjectileController.enableBeam, 8, {}) or {},
 		ClickHold = require(replicatedStorage['rbxts_include']['node_modules']['@easy-games']['game-core'].out.client.ui.lib.util['click-hold']).ClickHold,
 		Client = Client,
 		ClientConstructor = require(replicatedStorage['rbxts_include']['node_modules']['@rbxts'].net.out.client),
@@ -754,7 +785,13 @@ run(function()
 			}
 		end,
 		HudAliveCount = require(lplr.PlayerScripts.TS.controllers.global['top-bar'].ui.game['hud-alive-player-counts']).HudAlivePlayerCounts,
-		ItemMeta = debug.getupvalue(require(replicatedStorage.TS.item['item-meta']).getItemMeta, 1),
+		ItemMeta = (function()
+			local ok, fn = pcall(function()
+				return require(replicatedStorage.TS.item['item-meta']).getItemMeta
+			end)
+			if not ok or not fn then return {} end
+			return safeUpvalue(fn, 1, {}) or {}
+		end)(),
 		KillEffectMeta = require(replicatedStorage.TS.locker['kill-effect']['kill-effect-meta']).KillEffectMeta,
 		KillFeedController = Flamework.resolveDependency('client/controllers/game/kill-feed/kill-feed-controller@KillFeedController'),
 		Knit = Knit,
@@ -771,7 +808,13 @@ run(function()
 		SoundList = require(replicatedStorage.TS.sound['game-sound']).GameSound,
 		SoundManager = require(replicatedStorage['rbxts_include']['node_modules']['@easy-games']['game-core'].out).SoundManager,
 		Store = require(lplr.PlayerScripts.TS.ui.store).ClientStore,
-		TeamUpgradeMeta = debug.getupvalue(require(replicatedStorage.TS.games.bedwars['team-upgrade']['team-upgrade-meta']).getTeamUpgradeMetaForQueue, 6),
+		TeamUpgradeMeta = (function()
+			local ok, fn = pcall(function()
+				return require(replicatedStorage.TS.games.bedwars['team-upgrade']['team-upgrade-meta']).getTeamUpgradeMetaForQueue
+			end)
+			if not ok or not fn then return {} end
+			return safeUpvalue(fn, 6, {}) or {}
+		end)(),
 		UILayers = require(replicatedStorage['rbxts_include']['node_modules']['@easy-games']['game-core'].out).UILayers,
 		VisualizerUtils = require(lplr.PlayerScripts.TS.lib.visualizer['visualizer-utils']).VisualizerUtils,
 		WeldTable = require(replicatedStorage.TS.util['weld-util']).WeldUtil,
@@ -830,7 +873,8 @@ run(function()
 
 	for i, v in remoteNames do
 		if v and type(v) == 'function' then
-			local remote = dumpRemote(debug.getconstants(v))
+			local ok, consts = pcall(debug.getconstants, v)
+			local remote = (ok and consts and dumpRemote(consts)) or ''
 			if remote == '' then
 				notif('Vape', 'Failed to grab remote ('..i..')', 10, 'alert')
 			end
@@ -840,17 +884,22 @@ run(function()
 		end
 	end
 
-	OldBreak = bedwars.BlockController.isBlockBreakable
+	OldBreak = bedwars.BlockController and bedwars.BlockController.isBlockBreakable
+
+	local dummyRemote = {
+		SendToServer = function() end,
+		CallServer = function() end,
+		CallServerAsync = function() end,
+		instance = {FireServer = function() end, InvokeServer = function() end, OnClientEvent = Instance.new('BindableEvent').Event}
+	}
 
 	Client.Get = function(self, remoteName)
 		if not remoteName or remoteName == '' then
-			return {
-				SendToServer = function() end,
-				CallServer = function() end,
-				CallServerAsync = function() end
-			}
+			return dummyRemote
 		end
-		local call = OldGet(self, remoteName)
+		if not OldGet then return dummyRemote end
+		local ok, call = pcall(OldGet, self, remoteName)
+		if not ok or not call then return dummyRemote end
 
 		if remoteName == remotes.AttackEntity then
 			return {
@@ -1868,18 +1917,19 @@ run(function()
     local Targetcolor
     local Attackcolor
     
-    local function getAttackData()
-        if not entitylib.isAlive then
-            return false
-        end
-        if Mouse.Enabled then
-            if not inputService:IsMouseButtonPressed(0) and (tick() - bedwars.SwordController.lastSwing) > 0.3 then
-                return false
-            end
-        end
-        if LegitAura.Enabled and (tick() - bedwars.SwordController.lastSwing) > 0.3 then
-            return false
-        end
+	local function getAttackData()
+		if not entitylib.isAlive then
+			return false
+		end
+		local lastSwing = bedwars.SwordController and bedwars.SwordController.lastSwing
+		if Mouse.Enabled then
+			if not inputService:IsMouseButtonPressed(0) and (not lastSwing or (tick() - lastSwing) > 0.3) then
+				return false
+			end
+		end
+		if LegitAura.Enabled and (not lastSwing or (tick() - lastSwing) > 0.3) then
+			return false
+		end
     
         if (lplr.Character:GetAttribute('StunnedUntilTime') or 0) - workspace:GetServerTimeNow() > 0 then
             return false
@@ -1893,17 +1943,17 @@ run(function()
             return false
         end
     
-        local meta = bedwars.ItemMeta[sword.tool.Name]
-        if Limit.Enabled then
-            if store.hand.toolType ~= 'sword' or bedwars.DaoController.chargingMaid then
-                return false
-            end
-        end
-    
-        return sword, meta
-    end
-    
-    local cache = {}
+		local meta = bedwars.ItemMeta and bedwars.ItemMeta[sword.tool.Name]
+		if Limit.Enabled then
+			if store.hand.toolType ~= 'sword' or (bedwars.DaoController and bedwars.DaoController.chargingMaid) then
+				return false
+			end
+		end
+
+		return sword, meta
+	end
+	
+	local cache = {}
     local function getAim(ent)
         if Area.Value == 'Closest' then
             if not cache[ent.Character] then
@@ -2306,6 +2356,7 @@ run(function()
 		Name = 'Velocity',
 		Function = function(callback)
 			if callback then
+				if not bedwars.KnockbackUtil or not bedwars.KnockbackUtil.applyKnockback then return end
 				old = bedwars.KnockbackUtil.applyKnockback
 				bedwars.KnockbackUtil.applyKnockback = function(root, mass, dir, knockback, ...)
 					if rand:NextNumber(0, 100) > Chance.Value then return end
@@ -2697,8 +2748,10 @@ run(function()
 		Function = function(callback)
 			if callback then
 				if Mode.Value == 'Sword' then
-					debug.setconstant(bedwars.SwordController.swingSwordInRegion, 6, (Expand.Value / 3))
-					set = true
+					if bedwars.SwordController and bedwars.SwordController.swingSwordInRegion then
+						debug.setconstant(bedwars.SwordController.swingSwordInRegion, 6, (Expand.Value / 3))
+						set = true
+					end
 				else
 					HitBoxes:Clean(entitylib.Events.EntityAdded:Connect(createHitbox))
 					HitBoxes:Clean(entitylib.Events.EntityRemoving:Connect(function(ent)
@@ -2713,7 +2766,9 @@ run(function()
 				end
 			else
 				if set then
-					debug.setconstant(bedwars.SwordController.swingSwordInRegion, 6, 3.8)
+					if bedwars.SwordController and bedwars.SwordController.swingSwordInRegion then
+						debug.setconstant(bedwars.SwordController.swingSwordInRegion, 6, 3.8)
+					end
 					set = nil
 				end
 				for _, part in objects do
@@ -2800,7 +2855,8 @@ run(function()
 	local anims, AnimDelay, AnimTween, armC0 = vape.Libraries.auraanims, tick()
 	local AttackRemote = {FireServer = function() end}
 	task.spawn(function()
-		AttackRemote = bedwars.Client:Get(remotes.AttackEntity).instance
+		local r = waitClientGet(remotes.AttackEntity)
+		if r and r.instance then AttackRemote = r.instance end
 	end)
 
 	local function getAttackData()
@@ -2815,13 +2871,14 @@ run(function()
 		local sword = Limit.Enabled and store.hand or store.tools.sword
 		if not sword or not sword.tool then return false end
 
-		local meta = bedwars.ItemMeta[sword.tool.Name]
+		local meta = bedwars.ItemMeta and bedwars.ItemMeta[sword.tool.Name]
 		if Limit.Enabled then
-			if store.hand.toolType ~= 'sword' or bedwars.DaoController.chargingMaid then return false end
+			if store.hand.toolType ~= 'sword' or (bedwars.DaoController and bedwars.DaoController.chargingMaid) then return false end
 		end
 
 		if LegitAura.Enabled then
-			if (tick() - bedwars.SwordController.lastSwing) > 0.15 then return false end
+			local lastSwing = bedwars.SwordController and bedwars.SwordController.lastSwing
+			if not lastSwing or (tick() - lastSwing) > 0.15 then return false end
 		end
 
 		return sword, meta
@@ -3275,7 +3332,8 @@ run(function()
 	local JumpTick, JumpSpeed, Direction = tick(), 0
 	local projectileRemote = {InvokeServer = function() end}
 	task.spawn(function()
-		projectileRemote = bedwars.Client:Get(remotes.FireProjectile).instance
+		local r = waitClientGet(remotes.FireProjectile)
+		if r and r.instance then projectileRemote = r.instance end
 	end)
 	
 	local function launchProjectile(item, pos, proj, speed, dir)
@@ -3503,7 +3561,8 @@ run(function()
 	local rayParams = RaycastParams.new()
 	local groundHit
 	task.spawn(function()
-		groundHit = bedwars.Client:Get(remotes.GroundHit).instance
+		local r = waitClientGet(remotes.GroundHit)
+		if r and r.instance then groundHit = r.instance end
 	end)
 	
 	NoFall = vape.Categories.Blatant:CreateModule({
@@ -3540,7 +3599,7 @@ run(function()
 	
 							if tracked < -85 then
 								if Mode.Value == 'Packet' then
-									groundHit:FireServer(nil, Vector3.new(0, tracked, 0), workspace:GetServerTimeNow())
+									if groundHit then pcall(function() groundHit:FireServer(nil, Vector3.new(0, tracked, 0), workspace:GetServerTimeNow()) end) end
 								else
 									rayParams.FilterDescendantsInstances = {lplr.Character, gameCamera}
 									rayParams.CollisionGroup = root.CollisionGroup
@@ -3743,7 +3802,8 @@ run(function()
 	local FireDelays = {}
 	local CooldownController
 	task.spawn(function()
-		projectileRemote = bedwars.Client:Get(remotes.FireProjectile).instance
+		local r = waitClientGet(remotes.FireProjectile)
+		if r and r.instance then projectileRemote = r.instance end
 		pcall(function()
 			local Knit = require(game:GetService('ReplicatedStorage').rbxts_include.node_modules['@easy-games'].knit.src).KnitClient
 			CooldownController = Knit.Controllers.CooldownController
@@ -5043,7 +5103,7 @@ run(function()
 				if not AutoBalloon.Enabled then return end
 	
 				local lowestpoint = math.huge
-				for _, v in store.blocks do
+				for _, v in (store.blocks or {}) do
 					local point = (v.Position.Y - (v.Size.Y / 2)) - 50
 					if point < lowestpoint then 
 						lowestpoint = point 
@@ -5261,6 +5321,7 @@ run(function()
 			end, 10, false)
 		end,
 		fisherman = function()
+			if not bedwars.FishingMinigameController or not bedwars.FishingMinigameController.startMinigame then return end
 			local old = bedwars.FishingMinigameController.startMinigame
 			bedwars.FishingMinigameController.startMinigame = function(_, _, result)
 				result({win = true})
@@ -5501,11 +5562,13 @@ run(function()
 		table.insert(sortTable, i)
 	end
 	table.sort(sortTable, function(a, b)
-		return bedwars.BedwarsKitMeta[a].name < bedwars.BedwarsKitMeta[b].name
+		local am = bedwars.BedwarsKitMeta and bedwars.BedwarsKitMeta[a]
+		local bm = bedwars.BedwarsKitMeta and bedwars.BedwarsKitMeta[b]
+		return (am and am.name or a) < (bm and bm.name or b)
 	end)
 	for _, v in sortTable do
 		Toggles[v] = AutoKit:CreateToggle({
-			Name = bedwars.BedwarsKitMeta[v].name,
+			Name = (bedwars.BedwarsKitMeta and bedwars.BedwarsKitMeta[v] and bedwars.BedwarsKitMeta[v].name) or v,
 			Default = true
 		})
 	end
@@ -5517,7 +5580,8 @@ run(function()
 	rayCheck.RespectCanCollide = true
 	local projectileRemote = {InvokeServer = function() end}
 	task.spawn(function()
-		projectileRemote = bedwars.Client:Get(remotes.FireProjectile).instance
+		local r = waitClientGet(remotes.FireProjectile)
+		if r and r.instance then projectileRemote = r.instance end
 	end)
 	
 	local function firePearl(pos, spot, item)
@@ -5766,7 +5830,7 @@ run(function()
 				if not AutoVoidDrop.Enabled then return end
 	
 				local lowestpoint = math.huge
-				for _, v in store.blocks do
+				for _, v in (store.blocks or {}) do
 					local point = (v.Position.Y - (v.Size.Y / 2)) - 50
 					if point < lowestpoint then
 						lowestpoint = point
@@ -6577,6 +6641,7 @@ run(function()
 		Name = 'AutoTool',
 		Function = function(callback)
 			if callback then
+				if not bedwars.BlockBreaker or not bedwars.BlockBreaker.hitBlock then return end
 				event = Instance.new('BindableEvent')
 				AutoTool:Clean(event)
 				AutoTool:Clean(event.Event:Connect(function()
@@ -7432,7 +7497,7 @@ run(function()
 		Default = true
 	})
 	local count = 0
-	for i, v in bedwars.TeamUpgradeMeta do
+	for i, v in (bedwars.TeamUpgradeMeta or {}) do
 		local toggleCount = count
 		table.insert(UpgradeToggles, AutoBuy:CreateToggle({
 			Name = 'Buy '..(v.name == 'Armor' and 'Protection' or v.name),
@@ -7809,12 +7874,13 @@ run(function()
 	
 			if text == '' then
 				for _, v in {'diamond_sword', 'diamond_pickaxe', 'diamond_axe', 'shears', 'wood_bow', 'wool_white', 'fireball', 'apple', 'iron', 'gold', 'diamond', 'emerald'} do
-					createitem(v, bedwars.ItemMeta[v].image)
+					local meta = bedwars.ItemMeta and bedwars.ItemMeta[v]
+					if meta and meta.image then createitem(v, meta.image) end
 				end
 				return
 			end
 	
-			for i, v in bedwars.ItemMeta do
+			for i, v in (bedwars.ItemMeta or {}) do
 				if text:lower() == i:lower():sub(1, text:len()) then
 					if not v.image then continue end
 					createitem(i, v.image)
@@ -8166,6 +8232,7 @@ run(function()
 		Name = 'FastConsume',
 		Function = function(callback)
 			if callback then
+				if not bedwars.ClickHold or not bedwars.ClickHold.startClick then return end
 				oldclickhold = bedwars.ClickHold.startClick
 				oldshowprogress = bedwars.ClickHold.showProgress
 				bedwars.ClickHold.startClick = function(self)
@@ -8778,7 +8845,7 @@ run(function()
 		Function = function()
 			if not customlist then return end
 			table.clear(customlist)
-			for _, obj in store.blocks do
+			for _, obj in (store.blocks or {}) do
 				if table.find(Custom.ListEnabled, obj.Name) then
 					table.insert(customlist, obj)
 				end
@@ -8848,20 +8915,23 @@ run(function()
 		Function = function(callback)
 			if callback then
 	            BedBreakEffect:Clean(vapeEvents.BedwarsBedBreak.Event:Connect(function(data)
-	                firesignal(bedwars.Client:Get('BedBreakEffectTriggered').instance.OnClientEvent, {
+	                local remote = safeClientGet('BedBreakEffectTriggered')
+	                if remote and remote.instance and remote.instance.OnClientEvent then
+	                firesignal(remote.instance.OnClientEvent, {
 	                    player = data.player,
 	                    position = data.bedBlockPosition * 3,
 	                    effectType = NameToId[List.Value],
 	                    teamId = data.brokenBedTeam.id,
 	                    centerBedPosition = data.bedBlockPosition * 3
 	                })
+	                end
 	            end))
 	        end
 		end,
 		Tooltip = 'Custom bed break effects'
 	})
 	local BreakEffectName = {}
-	for i, v in bedwars.BedBreakEffectMeta do
+	for i, v in (bedwars.BedBreakEffectMeta or {}) do
 		table.insert(BreakEffectName, v.name)
 		NameToId[v.name] = i
 	end
@@ -9420,7 +9490,7 @@ run(function()
 		end
 	})
 	local KillEffectName = {}
-	for i, v in bedwars.KillEffectMeta do
+	for i, v in (bedwars.KillEffectMeta or {}) do
 		table.insert(KillEffectName, v.name)
 		NameToId[v.name] = i
 	end
@@ -9664,6 +9734,7 @@ run(function()
 	end)
 	
 	local function modifyconstant(func, ind, val)
+		if not func then return end
 		if not old[func] then old[func] = {} end
 		if not new[func] then new[func] = {} end
 		if not old[func][ind] then
@@ -9789,7 +9860,9 @@ run(function()
 	UICleanup:CreateToggle({
 		Name = 'Fix Queue Card',
 		Function = function(callback)
-			modifyconstant(bedwars.QueueCard.render, 15, callback and 0.1 or nil)
+			if bedwars.QueueCard and bedwars.QueueCard.render then
+				modifyconstant(bedwars.QueueCard.render, 15, callback and 0.1 or nil)
+			end
 		end,
 		Default = true
 	})
@@ -9910,7 +9983,9 @@ run(function()
 		Function = function(callback)
 			if callback then
 				WinEffect:Clean(vapeEvents.MatchEndEvent.Event:Connect(function()
-					for i, v in getconnections(bedwars.Client:Get('WinEffectTriggered').instance.OnClientEvent) do
+					local remote = safeClientGet('WinEffectTriggered')
+					if not (remote and remote.instance and remote.instance.OnClientEvent) then return end
+					for i, v in getconnections(remote.instance.OnClientEvent) do
 						if v.Function then
 							v.Function({
 								winEffectType = NameToId[List.Value],
@@ -9924,7 +9999,7 @@ run(function()
 		Tooltip = 'Allows you to select any clientside win effect'
 	})
 	local WinEffectName = {}
-	for i, v in bedwars.WinEffectMeta do
+	for i, v in (bedwars.WinEffectMeta or {}) do
 		table.insert(WinEffectName, v.name)
 		NameToId[v.name] = i
 	end
@@ -13235,7 +13310,7 @@ run(function()
 	local Delay
 	local NoSlow
 	
-	local Legit = (bedwars.DragonSlayerController.onKitLocalActivated and getFunctionRange(bedwars.DragonSlayerController.onKitLocalActivated)) or 14.4
+	local Legit = ((bedwars.DragonSlayerController and bedwars.DragonSlayerController.onKitLocalActivated) and getFunctionRange(bedwars.DragonSlayerController.onKitLocalActivated)) or 14.4
 	local modifier, oldAddModifier, newAddModifier
 	local noSlowUntil = 0
 	
@@ -14274,7 +14349,8 @@ run(function()
 	rayCheck.FilterType = Enum.RaycastFilterType.Include
 	local projectileRemote = {InvokeServer = function(self, ...) end}
 	task.spawn(function()
-		projectileRemote = bedwars.Client:Get('ProjectileFire').instance
+		local r = waitClientGet('ProjectileFire')
+		if r and r.instance then projectileRemote = r.instance end
 	end)
 	
 	local function firePearl(pos, spot, item)
@@ -14593,7 +14669,7 @@ run(function()
 					return
 				end
 	
-				for _, v in store.blocks do
+				for _, v in (store.blocks or {}) do
 					local point = (v.Position.Y - (v.Size.Y / 2)) - 50
 					if point < lowestpoint then
 						lowestpoint = point
@@ -14678,11 +14754,13 @@ run(function()
 		Name = 'FishermanSpy',
 		Function = function(call)
 			if call then
-				FishermanSpy:Clean(bedwars.Client:Get('FishCaught').instance.OnClientEvent:Connect(function(data)
+				local remote = safeClientGet('FishCaught')
+				if remote and remote.instance and remote.instance.OnClientEvent then
+				FishermanSpy:Clean(remote.instance.OnClientEvent:Connect(function(data)
 					if data.dropData and data.dropData.drops and data.catchingPlayer then
 						local text = {}
 						for _, v in data.dropData.drops do
-							local itemDisplay = bedwars.ItemMeta[v.itemType] and bedwars.ItemMeta[v.itemType].displayName or v.itemType
+							local itemDisplay = bedwars.ItemMeta and bedwars.ItemMeta[v.itemType] and bedwars.ItemMeta[v.itemType].displayName or v.itemType
 							table.insert(text, `{v.amount} {itemDisplay:lower()}{v.amount >= 2 and 's' or ''}`)
 						end
 	
@@ -14691,6 +14769,7 @@ run(function()
 						end
 					end
 				end))
+				end
 			end
 		end
 	})
@@ -14706,10 +14785,10 @@ run(function()
 	local Targets
 	local Range
 	
-	local Legit = (bedwars.MimicController and getFunctionRange(bedwars.MimicController.onKitLocalActivated)) or 25
+	local Legit = ((bedwars.MimicController and bedwars.MimicController.onKitLocalActivated) and getFunctionRange(bedwars.MimicController.onKitLocalActivated)) or 25
 	local mimicPickPocket
 	pcall(function()
-		mimicPickPocket = bedwars.Client:Get('MimicBlockPickPocketPlayer')
+		mimicPickPocket = safeClientGet('MimicBlockPickPocketPlayer')
 	end)
 	
 	AutoPickpocket = vape.Categories.Minigames:CreateModule({
