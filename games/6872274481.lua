@@ -4524,11 +4524,16 @@ run(function()
 	local function paValidLock(originPos)
 		local t = paLockedTarget
 		if not t then return nil end
-		if tick() - paLockTime > 2 then return nil end
+		local now = tick()
+		if not paLockTime or (now - paLockTime) > 2 then return nil end
 		if not t.Character or not t.Character.Parent then return nil end
 		if not t.RootPart or not t.RootPart.Parent then return nil end
-		if t.Humanoid and t.Humanoid.Health <= 0 then return nil end
-		if (t.RootPart.Position - originPos).Magnitude > Range.Value then return nil end
+		local hum = t.Humanoid
+		local hp = hum and tonumber(hum.Health)
+		if hp and hp <= 0 then return nil end
+		local rp = t.RootPart.Position
+		if typeof(rp) ~= 'Vector3' or typeof(originPos) ~= 'Vector3' then return nil end
+		if (rp - originPos).Magnitude > Range.Value then return nil end
 		return t
 	end
 
