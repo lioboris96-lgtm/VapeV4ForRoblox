@@ -1,3 +1,5 @@
+if setthreadidentity then pcall(setthreadidentity, 8) end
+if setidentity then pcall(setidentity, 8) end
 local run = function(func)
 	local suc, err = pcall(function()
 		if setthreadidentity then setthreadidentity(8) end
@@ -11,6 +13,44 @@ end
 local cloneref = cloneref or function(obj)
 	return obj
 end
+-- Cache capability-gated globals while identity is elevated, then shadow them
+-- with locals so later callbacks never touch the guarded globals directly.
+local _RealGame = game
+local _RealInstance = Instance
+local _RealWorkspace = workspace
+local workspaceService = cloneref(_RealGame:GetService('Workspace'))
+local Instance = setmetatable({}, {
+	__index = _RealInstance,
+	__newindex = function(_, k, v)
+		_RealInstance[k] = v
+	end,
+})
+Instance.new = function(className, parent)
+	if type(className) ~= 'string' then
+		warn('[Vape] Instance.new expected string class, got '..typeof(className))
+		return nil
+	end
+	if setthreadidentity then pcall(setthreadidentity, 8) end
+	if setidentity then pcall(setidentity, 8) end
+	local ok, obj = pcall(_RealInstance.new, className)
+	if not ok or obj == nil then
+		warn('[Vape] Instance.new failed for '..tostring(className)..': '..tostring(obj))
+		return nil
+	end
+	if parent ~= nil then
+		pcall(function()
+			obj.Parent = parent
+		end)
+	end
+	return obj
+end
+Instance.fromExisting = function(obj)
+	if setthreadidentity then pcall(setthreadidentity, 8) end
+	if setidentity then pcall(setidentity, 8) end
+	return _RealInstance.fromExisting(obj)
+end
+local game = _RealGame
+local workspace = workspaceService
 local vapeEvents = setmetatable({}, {
 	__index = function(self, index)
 		self[index] = Instance.new('BindableEvent')
@@ -464,8 +504,39 @@ local sortmethods = {
 		local angle = math.acos(localfacing:Dot(((a.Entity.RootPart.Position - selfrootpos) * Vector3.new(1, 0, 1)).Unit))
 		local angle2 = math.acos(localfacing:Dot(((b.Entity.RootPart.Position - selfrootpos) * Vector3.new(1, 0, 1)).Unit))
 		return angle < angle2
+	end,
+	Distance = function(a, b)
+		local ok, res = pcall(function()
+			local selfpos = entitylib.character.RootPart.Position
+			return (a.Entity.RootPart.Position - selfpos).Magnitude < (b.Entity.RootPart.Position - selfpos).Magnitude
+		end)
+		return ok and res or false
+	end,
+	Cursor = function(a, b)
+		local ok, res = pcall(function()
+			local mouse = inputService:GetMouseLocation() - guiService:GetGuiInset()
+			local apos = gameCamera:WorldToViewportPoint(a.Entity.RootPart.Position)
+			local bpos = gameCamera:WorldToViewportPoint(b.Entity.RootPart.Position)
+			return (Vector2.new(apos.X, apos.Y) - mouse).Magnitude < (Vector2.new(bpos.X, bpos.Y) - mouse).Magnitude
+		end)
+		if ok then return res end
+		return sortmethods.Distance(a, b)
 	end
 }
+
+local function getSortList(defaults)
+	defaults = (type(defaults) == 'table' and defaults or {'Distance', 'Damage'})
+	local methods = {}
+	for _, v in defaults do
+		table.insert(methods, v)
+	end
+	for k in sortmethods do
+		if not table.find(methods, k) then
+			table.insert(methods, k)
+		end
+	end
+	return methods
+end
 
 local function getBlockDistance(a)
 	local pos = (entitylib.isAlive and (entitylib.character.RootPart.Position - Vector3.new(0, 1, 0)) or Vector3.zero)
@@ -824,9 +895,54 @@ run(function()
 		QueueMeta = require(replicatedStorage.TS.game['queue-meta']).QueueMeta,
 		Roact = require(replicatedStorage['rbxts_include']['node_modules']['@rbxts']['roact'].src),
 		RuntimeLib = require(replicatedStorage['rbxts_include'].RuntimeLib),
-		SoundList = require(replicatedStorage.TS.sound['game-sound']).GameSound,
-		SoundManager = require(replicatedStorage['rbxts_include']['node_modules']['@easy-games']['game-core'].out).SoundManager,
-		Store = require(lplr.PlayerScripts.TS.ui.store).ClientStore,
+		SoundList = (function()
+			local ok, res = pcall(function()
+				return require(replicatedStorage.TS.sound['game-sound']).GameSound
+			end)
+			return (ok and res) or {}
+		end)(),
+		SoundManager = (function()
+			local ok, res = pcall(function()
+				return require(replicatedStorage['rbxts_include']['node_modules']['@easy-games']['game-core'].out).SoundManager
+			end)
+			if ok and res and type(res) == 'table' and type(res.playSound) == 'function' then
+				local orig = res.playSound
+				local proxy = setmetatable({
+					playSound = function(self, id, ...)
+						if id == nil then return end
+						local target = (self == proxy and res or self)
+						local ok2, err = pcall(orig, target, id, ...)
+						if not ok2 then
+							warn('[Vape] playSound failed: '..tostring(err))
+						end
+					end
+				}, {
+					__index = res,
+					__newindex = res
+				})
+				return proxy
+			end
+			if ok and res and type(res) == 'table' then
+				pcall(function()
+					res.playSound = function() end
+				end)
+				if type(res.playSound) == 'function' then return res end
+				return setmetatable({}, {__index = res, playSound = function() end})
+			end
+			return {playSound = function() end}
+		end)(),
+		Store = (function()
+			local ok, res = pcall(function()
+				return require(lplr.PlayerScripts.TS.ui.store).ClientStore
+			end)
+			if ok and res then return res end
+			return {
+				getState = function()
+					return {Bedwars = {teamUpgrades = {}}}
+				end,
+				dispatch = function() end
+			}
+		end)(),
 		TeamUpgradeMeta = (function()
 			local ok, fn = pcall(function()
 				return require(replicatedStorage.TS.games.bedwars['team-upgrade']['team-upgrade-meta']).getTeamUpgradeMetaForQueue
@@ -845,6 +961,22 @@ run(function()
 			return rawget(self, ind)
 		end
 	})
+
+	local function playSoundSafe(id, extra)
+		if id == nil then return end
+		local sm = bedwars.SoundManager
+		if not sm or type(sm.playSound) ~= 'function' then return end
+		local ok, err = pcall(function()
+			if extra ~= nil then
+				sm:playSound(id, extra)
+			else
+				sm:playSound(id)
+			end
+		end)
+		if not ok then
+			warn('[Vape] playSound failed: '..tostring(err))
+		end
+	end
 
 	local remoteNames = {
 		AfkStatus = safeGetProto(Knit.Controllers.AfkController.KnitStart, 1),
@@ -1816,35 +1948,70 @@ run(function()
     end
     
     local function canBuy(item)
+        if type(item) ~= 'table' then return false end
         if item.ignoredByKit and table.find(item.ignoredByKit, store.equippedKit or '') then return false end
         if item.lockedByForge or item.disabled then return false end
         if item.require and item.require.teamUpgrade then
-            if (bedwars.Store:getState().Bedwars.teamUpgrades[item.require.teamUpgrade.upgradeId] or -1) < item.require.teamUpgrade.lowestTierIndex then
+            local ok, state = pcall(function()
+                return bedwars.Store:getState()
+            end)
+            local tier = -1
+            if ok and state and state.Bedwars and state.Bedwars.teamUpgrades then
+                tier = state.Bedwars.teamUpgrades[item.require.teamUpgrade.upgradeId] or -1
+            end
+            if tier < item.require.teamUpgrade.lowestTierIndex then
                 return false
             end
         end
         local currency = getItem(item.currency)
-        return (currency and currency.amount or 0) >= item.price
+        return (currency and currency.amount or 0) >= (item.price or math.huge)
     end
     
     local function purchase(itemType, shopId)
-        if bedwars.BedwarsShopController.alreadyPurchasedMap[itemType] ~= nil then return end
-    
-        local item = bedwars.Shop.getShopItem(itemType, lplr, {shopId = shopId})
-        if not item or not canBuy(item) then return end
-    
-        bedwars.Client:Get('BedwarsPurchaseItem'):CallServerAsync({
-            shopItem = item,
-            shopId = shopId
-        }):andThen(function(suc)
-            if not suc then return end
-            bedwars.SoundManager:playSound(bedwars.SoundList.BEDWARS_PURCHASE_ITEM)
-            bedwars.Store:dispatch({
-                type = 'BedwarsAddItemPurchased',
-                itemType = itemType
+        if type(itemType) ~= 'string' or type(shopId) ~= 'string' then return end
+        local shopCtrl = bedwars.BedwarsShopController
+        if shopCtrl and shopCtrl.alreadyPurchasedMap and shopCtrl.alreadyPurchasedMap[itemType] ~= nil then return end
+        if not bedwars.Shop or type(bedwars.Shop.getShopItem) ~= 'function' then return end
+        local okItem, item = pcall(function()
+            return bedwars.Shop.getShopItem(itemType, lplr, {shopId = shopId})
+        end)
+        if not okItem or type(item) ~= 'table' or not canBuy(item) then return end
+        if not bedwars.Client or type(bedwars.Client.Get) ~= 'function' then return end
+        local okRemote, remote = pcall(function()
+            return bedwars.Client:Get('BedwarsPurchaseItem')
+        end)
+        if not okRemote or not remote then return end
+        local okCall, promise = pcall(function()
+            return remote:CallServerAsync({
+                shopItem = item,
+                shopId = shopId
             })
-            if item.tiered then
-                bedwars.BedwarsShopController.alreadyPurchasedMap[itemType] = true
+        end)
+        if not okCall or not promise or type(promise.andThen) ~= 'function' then return end
+        pcall(function()
+            local chained = promise:andThen(function(suc)
+                if not suc then return end
+                if bedwars.SoundManager and bedwars.SoundList and bedwars.SoundList.BEDWARS_PURCHASE_ITEM then
+                    pcall(function()
+                        bedwars.SoundManager:playSound(bedwars.SoundList.BEDWARS_PURCHASE_ITEM)
+                    end)
+                end
+                if bedwars.Store and type(bedwars.Store.dispatch) == 'function' then
+                    pcall(function()
+                        bedwars.Store:dispatch({
+                            type = 'BedwarsAddItemPurchased',
+                            itemType = itemType
+                        })
+                    end)
+                end
+                if item.tiered and shopCtrl and shopCtrl.alreadyPurchasedMap then
+                    shopCtrl.alreadyPurchasedMap[itemType] = true
+                end
+            end)
+            if chained and type(chained.catch) == 'function' then
+                chained:catch(function(err)
+                    warn('[Vape] Shop purchase failed: '..tostring(err))
+                end)
             end
         end)
     end
@@ -3889,7 +4056,25 @@ run(function()
 
 		local pearl = projType == 'telepearl'
 		local rawVel = pearl and Vector3.zero or (plr.RootPart.AssemblyLinearVelocity or plr.RootPart.Velocity or Vector3.zero)
-		local _velKey = tostring(plr)
+		local _velKey = (function()
+			local ok, key = pcall(function()
+				if type(plr) == 'table' then
+					if plr.Player and typeof(plr.Player) == 'Instance' then
+						return 'player_'..tostring(plr.Player.UserId)
+					end
+					if plr.Name and type(plr.Name) == 'string' then
+						return 'name_'..plr.Name
+					end
+					if plr.Character and typeof(plr.Character) == 'Instance' then
+						return 'char_'..plr.Character:GetDebugId()
+					end
+				elseif typeof(plr) == 'Instance' then
+					return 'inst_'..plr:GetDebugId()
+				end
+				return tostring(plr)
+			end)
+			return (ok and type(key) == 'string') and key or 'unknown'
+		end)()
 		local _velNow = tick()
 		if not _saVelHistory[_velKey] or (_velNow - (_saVelStamp[_velKey] or 0)) > 0.15 then
 			_saVelHistory[_velKey] = rawVel
@@ -11404,9 +11589,18 @@ run(function()
 	local gui
 	local beds,currentbedpos,Dashes = {}, nil, {Value  =1}
 	local function create(Name,values)
+		if type(Name) ~= 'string' then
+			warn('[Vape] create expected string class, got '..typeof(Name))
+			return nil
+		end
 		local obj = Instance.new(Name)
-		for i, v in values do
-			obj[i] = v
+		if obj == nil then return nil end
+		if type(values) == 'table' then
+			for i, v in values do
+				pcall(function()
+					obj[i] = v
+				end)
+			end
 		end
 		return obj
 	end
