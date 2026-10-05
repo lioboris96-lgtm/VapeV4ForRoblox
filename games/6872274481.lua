@@ -19,36 +19,34 @@ local _RealGame = game
 local _RealInstance = Instance
 local _RealWorkspace = workspace
 local workspaceService = cloneref(_RealGame:GetService('Workspace'))
-local Instance = setmetatable({}, {
-	__index = _RealInstance,
-	__newindex = function(_, k, v)
-		_RealInstance[k] = v
+local Instance = setmetatable({
+	new = function(className, parent)
+		if type(className) ~= 'string' then
+			warn('[Vape] Instance.new expected string class, got '..typeof(className))
+			return nil
+		end
+		if setthreadidentity then pcall(setthreadidentity, 8) end
+		if setidentity then pcall(setidentity, 8) end
+		local ok, obj = pcall(_RealInstance.new, className)
+		if not ok or obj == nil then
+			warn('[Vape] Instance.new failed for '..tostring(className)..': '..tostring(obj))
+			return nil
+		end
+		if parent ~= nil then
+			pcall(function()
+				obj.Parent = parent
+			end)
+		end
+		return obj
 	end,
+	fromExisting = function(obj)
+		if setthreadidentity then pcall(setthreadidentity, 8) end
+		if setidentity then pcall(setidentity, 8) end
+		return _RealInstance.fromExisting(obj)
+	end,
+}, {
+	__index = _RealInstance,
 })
-Instance.new = function(className, parent)
-	if type(className) ~= 'string' then
-		warn('[Vape] Instance.new expected string class, got '..typeof(className))
-		return nil
-	end
-	if setthreadidentity then pcall(setthreadidentity, 8) end
-	if setidentity then pcall(setidentity, 8) end
-	local ok, obj = pcall(_RealInstance.new, className)
-	if not ok or obj == nil then
-		warn('[Vape] Instance.new failed for '..tostring(className)..': '..tostring(obj))
-		return nil
-	end
-	if parent ~= nil then
-		pcall(function()
-			obj.Parent = parent
-		end)
-	end
-	return obj
-end
-Instance.fromExisting = function(obj)
-	if setthreadidentity then pcall(setthreadidentity, 8) end
-	if setidentity then pcall(setidentity, 8) end
-	return _RealInstance.fromExisting(obj)
-end
 local game = _RealGame
 local workspace = workspaceService
 local vapeEvents = setmetatable({}, {
