@@ -7,7 +7,12 @@ local run = function(func)
 		func()
 	end)
 	if not suc and err then
-		warn('[Vape] Module error: '..tostring(err))
+		local trace = ''
+		if debug and debug.traceback then
+			local ok, res = pcall(debug.traceback)
+			if ok and type(res) == 'string' then trace = '\n'..res end
+		end
+		warn('[Vape] Module error: '..tostring(err)..trace)
 	end
 end
 local cloneref = cloneref or function(obj)
@@ -27,7 +32,12 @@ local Instance = setmetatable({
 		end
 		if setthreadidentity then pcall(setthreadidentity, 8) end
 		if setidentity then pcall(setidentity, 8) end
-		local ok, obj = pcall(_RealInstance.new, className)
+		local ctor = _RealInstance and _RealInstance.new
+		if type(ctor) ~= 'function' then
+			warn('[Vape] Instance.new unavailable (no capability)')
+			return nil
+		end
+		local ok, obj = pcall(ctor, className)
 		if not ok or obj == nil then
 			warn('[Vape] Instance.new failed for '..tostring(className)..': '..tostring(obj))
 			return nil
@@ -42,7 +52,17 @@ local Instance = setmetatable({
 	fromExisting = function(obj)
 		if setthreadidentity then pcall(setthreadidentity, 8) end
 		if setidentity then pcall(setidentity, 8) end
-		return _RealInstance.fromExisting(obj)
+		local fn = _RealInstance and _RealInstance.fromExisting
+		if type(fn) ~= 'function' then
+			warn('[Vape] Instance.fromExisting unavailable (no capability)')
+			return nil
+		end
+		local ok, res = pcall(fn, obj)
+		if not ok then
+			warn('[Vape] Instance.fromExisting failed: '..tostring(res))
+			return nil
+		end
+		return res
 	end,
 }, {
 	__index = _RealInstance,
@@ -1342,10 +1362,11 @@ run(function()
 	end
 
 	bedwars.placeBlock = function(pos, item)
-		if getItem(item) then
-			store.blockPlacer.blockType = item
-			return store.blockPlacer:placeBlock(bedwars.BlockController:getBlockPosition(pos))
-		end
+		if not (getItem(item) and store.blockPlacer and bedwars.BlockController) then return end
+		store.blockPlacer.blockType = item
+		local ok, bpos = pcall(bedwars.BlockController.getBlockPosition, bedwars.BlockController, pos)
+		if not ok or bpos == nil then return end
+		return store.blockPlacer:placeBlock(bpos)
 	end
 
 	bedwars.breakBlock = function(block, effects, anim, customHealthbar, autotool, wallcheck, method)
@@ -4047,7 +4068,7 @@ run(function()
 
 		local plr = entitylib.EntityMouse({
 			Part = 'RootPart',
-			Range = FOV.Value,
+			Range = math.max(Range.Value, FOV.Value),
 			Players = Targets.Players.Enabled,
 			NPCs = (Targets.NPCs and Targets.NPCs.Enabled) or false,
 			Wallcheck = Targets.Walls.Enabled,
@@ -4131,6 +4152,10 @@ run(function()
 				end
 				if SAFOVCircle and SAFOVCircle.Enabled then
 					runFOVCircle(true)
+				end
+				if type(hookmetamethod) ~= 'function' or type(newcclosure) ~= 'function' or type(checkcaller) ~= 'function' or type(getnamecallmethod) ~= 'function' then
+					notif('SilentAim', 'executor missing hook functions, SilentAim cannot run', 5)
+					return
 				end
 				if not namecallHooked then
 					namecallHooked = true
@@ -4554,7 +4579,11 @@ run(function()
 					ProjectileAimbot:Clean(cursorRenderConnection)
 				end
 
-				old = bedwars.ProjectileController.calculateImportantLaunchValues
+				old = bedwars.ProjectileController and bedwars.ProjectileController.calculateImportantLaunchValues
+				if type(old) ~= 'function' then
+					notif('ProjectileAimbot', 'hook failed: calculateImportantLaunchValues missing (game updated?)', 5)
+					return
+				end
 				bedwars.ProjectileController.calculateImportantLaunchValues = function(...)
 					local self, projmeta, worldmeta, origin, shootpos = ...
 					local originPos = entitylib.isAlive and (shootpos or (entitylib.character and entitylib.character.RootPart and entitylib.character.RootPart.Position)) or Vector3.zero
@@ -4562,7 +4591,7 @@ run(function()
 
 					local plr = entitylib.EntityMouse({
 						Part = 'RootPart',
-						Range = FOV.Value,
+						Range = math.max(Range.Value, FOV.Value),
 						Players = Targets.Players.Enabled,
 						NPCs = (Targets.NPCs and Targets.NPCs.Enabled) or false,
 						Wallcheck = Targets.Walls.Enabled,
