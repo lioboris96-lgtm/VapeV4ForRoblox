@@ -4414,6 +4414,26 @@ run(function()
 		return store.hand.toolType == 'bow' or store.hand.toolType == 'crossbow'
 	end
 
+	local function isFirstPerson()
+		if lplr.CameraMode == Enum.CameraMode.LockFirstPerson then return true end
+		local cam = workspace.CurrentCamera
+		local char = lplr.Character
+		local head = char and char:FindFirstChild('Head')
+		if not cam or not head then return false end
+		return (cam.CFrame.Position - head.Position).Magnitude < 2
+	end
+
+	local GUI_APPS = {'BedwarsItemShopApp', 'TeamUpgradeApp', 'ChestApp'}
+	local function isGUIOpen()
+		local controller = bedwars and bedwars.AppController
+		if not controller then return false end
+		for _, app in GUI_APPS do
+			local ok, open = pcall(controller.isAppOpen, controller, app)
+			if ok and open then return true end
+		end
+		return false
+	end
+
 	local function shouldHideCursor()
 		if not DesirePAHideCursor or not DesirePAHideCursor.Enabled then return false end
 		if DesirePACursorShowGUI and DesirePACursorShowGUI.Enabled and isGUIOpen() then return false end
