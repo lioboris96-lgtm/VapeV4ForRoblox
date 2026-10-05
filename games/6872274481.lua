@@ -4133,6 +4133,27 @@ run(function()
 			plr.Jumping and 42.6 or nil,
 			rayCheck, nil, targetBodyPart.Position, plr.RootPart, nil, true
 		)
+		if not calc then
+			calc = prediction.SolveTrajectory(
+				spawnPos, projSpeed, gravity,
+				aimTarget, _saVelHistory[_velKey],
+				playerGravity, plr.HipHeight,
+				plr.Jumping and 42.6 or nil,
+				nil, nil, targetBodyPart.Position, plr.RootPart, nil, false
+			)
+		end
+		if not calc and type(prediction.SolveTrajectoryWithAim) == 'function' then
+			local okAim, aimCalc = pcall(prediction.SolveTrajectoryWithAim,
+				spawnPos, projSpeed, gravity,
+				plr, (TargetPart.Value == 'Head' and 'Head' or 'RootPart'),
+				_saVelHistory[_velKey],
+				playerGravity, plr.HipHeight,
+				plr.Jumping and 42.6 or nil,
+				nil)
+			if okAim and typeof(aimCalc) == 'Vector3' then
+				calc = aimCalc
+			end
+		end
 		if not calc then return end
 
 		if targetinfo and targetinfo.Targets then
@@ -4157,36 +4178,49 @@ run(function()
 					notif('SilentAim', 'executor missing hook functions, SilentAim cannot run', 5)
 					return
 				end
-				if not namecallHooked then
-					namecallHooked = true
-					namecall = hookmetamethod(game, '__namecall', newcclosure(function(...)
-						if not SilentAim.Enabled or checkcaller() or getnamecallmethod() ~= 'InvokeServer' then
-							return namecall(...)
+			local G = (type(getgenv) == 'function' and getgenv()) or _G
+			G.VapeSA_Solve = function(args)
+				local ok, newVelocity = pcall(solveSilent, args)
+				if ok and typeof(newVelocity) == 'Vector3' then
+					args[6] = newVelocity
+					if AutoCharge.Enabled and typeof(args[8]) == 'table' then
+						local projType = args[3]
+						local dur
+						if type(projType) == 'string' and projType:find('arrow') then
+							dur = 0.58
+						else
+							local meta = bedwars.ProjectileMeta[projType]
+							dur = (meta and meta.maxDrawDurationSeconds) or 0.8
 						end
-						local remote = ...
-						if typeof(remote) == 'Instance' and remote.Name == 'ProjectileFire' then
-							local args = table.pack(select(2, ...))
-							local ok, newVelocity = pcall(solveSilent, args)
-							if ok and typeof(newVelocity) == 'Vector3' then
-								args[6] = newVelocity
-								if AutoCharge.Enabled and typeof(args[8]) == 'table' then
-									local projType = args[3]
-									local dur
-									if type(projType) == 'string' and projType:find('arrow') then
-										dur = 0.58
-									else
-										local meta = bedwars.ProjectileMeta[projType]
-										dur = (meta and meta.maxDrawDurationSeconds) or 0.8
-									end
-									args[8].drawDurationSec = dur * (skidChargePercent.Value / 100)
-								end
-							end
-							local self = ...
-							return self.InvokeServer(self, table.unpack(args, 1, args.n))
-						end
-						return namecall(...)
-					end))
+						args[8].drawDurationSec = dur * (skidChargePercent.Value / 100)
+					end
 				end
+				return args
+			end
+			G.VapeSA_IsOn = function()
+				return SilentAim.Enabled
+			end
+			if not G.VapeSA_Hooked then
+				G.VapeSA_Hooked = true
+				namecallHooked = true
+				local oldcall
+				oldcall = hookmetamethod(game, '__namecall', newcclosure(function(...)
+					if (not G.VapeSA_IsOn or not G.VapeSA_IsOn()) or checkcaller() or getnamecallmethod() ~= 'InvokeServer' then
+						return oldcall(...)
+					end
+					local remote = ...
+					if typeof(remote) == 'Instance' and remote.Name == 'ProjectileFire' then
+						local args = table.pack(select(2, ...))
+						if G.VapeSA_Solve then
+							args = G.VapeSA_Solve(args) or args
+						end
+						local self = ...
+						return self.InvokeServer(self, table.unpack(args, 1, args.n))
+					end
+					return oldcall(...)
+				end))
+				namecall = oldcall
+			end
 			else
 				lockedRandomPart = nil
 				table.clear(_saVelHistory)
@@ -4584,6 +4618,13 @@ run(function()
 					notif('ProjectileAimbot', 'hook failed: calculateImportantLaunchValues missing (game updated?)', 5)
 					return
 				end
+				local PA_G = (type(getgenv) == 'function' and getgenv()) or _G
+				if PA_G.VapePA_Hooked and type(PA_G.VapePA_Original) == 'function' then
+					old = PA_G.VapePA_Original
+				else
+					PA_G.VapePA_Original = old
+					PA_G.VapePA_Hooked = true
+				end
 				bedwars.ProjectileController.calculateImportantLaunchValues = function(...)
 					local self, projmeta, worldmeta, origin, shootpos = ...
 					local originPos = entitylib.isAlive and (shootpos or (entitylib.character and entitylib.character.RootPart and entitylib.character.RootPart.Position)) or Vector3.zero
@@ -4764,6 +4805,18 @@ run(function()
 							nil,
 							false
 						)
+					end
+					if not calc and type(prediction.SolveTrajectoryWithAim) == 'function' then
+						local okAim, aimCalc = pcall(prediction.SolveTrajectoryWithAim,
+							newlook.p, projSpeed, gravity,
+							plr, (TargetPart.Value == 'Head' and 'Head' or 'RootPart'),
+							solverVelocity,
+							playerGravity, plr.HipHeight,
+							tJump,
+							nil)
+						if okAim and typeof(aimCalc) == 'Vector3' then
+							calc = aimCalc
+						end
 					end
 
 					if calc then
