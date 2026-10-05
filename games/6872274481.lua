@@ -172,6 +172,25 @@ local function collection(tags, module, customadd, customremove)
 	return objs, cleanFunc
 end
 
+local function scanDescendants(root, addFn, module)
+	if typeof(root) ~= 'Instance' or type(addFn) ~= 'function' then
+		return {}
+	end
+	local found = {}
+	local ok, descendants = pcall(root.GetDescendants, root)
+	if not ok or type(descendants) ~= 'table' then
+		return found
+	end
+	for _, obj in descendants do
+		if module ~= nil and module.Enabled == false then
+			break
+		end
+		pcall(addFn, obj)
+		table.insert(found, obj)
+	end
+	return found
+end
+
 local function getBestArmor(slot)
 	local closest, mag = nil, 0
 
