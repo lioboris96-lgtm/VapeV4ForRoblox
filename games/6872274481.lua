@@ -5830,7 +5830,10 @@ run(function()
 			if not Targets.NPCs.Enabled and ent.NPC then return end
 			if Teammates.Enabled and (not ent.Targetable) and (not ent.Friend) then return end
 	
-			local nametag = Instance.new('TextLabel')
+			if setthreadidentity then pcall(setthreadidentity, 8) end
+		if setidentity then pcall(setidentity, 8) end
+		local okTag, nametag = pcall(Instance.new, 'TextLabel')
+		if not okTag or nametag == nil then return end
 			Strings[ent] = ent.Player and whitelist:tag(ent.Player, true, true)..(DisplayName.Enabled and ent.Player.DisplayName or ent.Player.Name) or ent.Character.Name
 	
 			if Health.Enabled then
@@ -5843,8 +5846,9 @@ run(function()
 			end
 	
 			if Equipment.Enabled then
-				for i, v in {'Hand', 'Helmet', 'Chestplate', 'Boots', 'Kit'} do
-					local Icon = Instance.new('ImageLabel')
+			for i, v in {'Hand', 'Helmet', 'Chestplate', 'Boots', 'Kit'} do
+				local okIcon, Icon = pcall(Instance.new, 'ImageLabel')
+				if okIcon and Icon ~= nil then
 					Icon.Name = v
 					Icon.Size = UDim2.fromOffset(30, 30)
 					Icon.Position = UDim2.fromOffset(-60 + (i * 30), -30)
@@ -5853,12 +5857,15 @@ run(function()
 					Icon.Parent = nametag
 				end
 			end
+			end
 	
 			nametag.TextSize = 14 * Scale.Value
 			nametag.FontFace = FontOption.Value
-			local size = getfontsize(removeTags(Strings[ent]), nametag.TextSize, nametag.FontFace, Vector2.new(100000, 100000))
-			nametag.Name = ent.Player and ent.Player.Name or ent.Character.Name
+		local okSize, size = pcall(getfontsize, removeTags(Strings[ent]), nametag.TextSize, nametag.FontFace, Vector2.new(100000, 100000))
+		nametag.Name = ent.Player and ent.Player.Name or ent.Character.Name
+		if okSize and typeof(size) == 'Vector2' then
 			nametag.Size = UDim2.fromOffset(size.X + 8, size.Y + 7)
+		end
 			nametag.AnchorPoint = Vector2.new(0.5, 1)
 			nametag.BackgroundColor3 = Color3.new()
 			nametag.BackgroundTransparency = Background.Value
@@ -5909,7 +5916,7 @@ run(function()
 				Reference[ent] = nil
 				Strings[ent] = nil
 				Sizes[ent] = nil
-				v:Destroy()
+				pcall(function() v:Destroy() end)
 			end
 		end,
 		Drawing = function(ent)
@@ -5954,9 +5961,12 @@ run(function()
 					nametag.Kit.Image = kit and kit ~= 'none' and bedwars.BedwarsKitMeta[kit].renderImage or ''
 				end
 	
-				local size = getfontsize(removeTags(Strings[ent]), nametag.TextSize, nametag.FontFace, Vector2.new(100000, 100000))
+			if setthreadidentity then pcall(setthreadidentity, 8) end
+			local okSize, size = pcall(getfontsize, removeTags(Strings[ent]), nametag.TextSize, nametag.FontFace, Vector2.new(100000, 100000))
+			if okSize and typeof(size) == 'Vector2' then
 				nametag.Size = UDim2.fromOffset(size.X + 8, size.Y + 7)
-				nametag.Text = Strings[ent]
+			end
+			nametag.Text = Strings[ent]
 			end
 		end,
 		Drawing = function(ent)
