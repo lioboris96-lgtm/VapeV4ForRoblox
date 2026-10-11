@@ -663,7 +663,11 @@ local function buildPredictor(targetPos, targetVelocity, root, targetAirborne, p
 
 		local y = rootPos.Y
 		if airborne then
-			y = rootPos.Y + vy * t - 0.5 * g * t * t
+			-- If they are going down (vy < 0), clamp the vertical prediction so it doesn't drop below the current root position
+			local effectiveVy = math.max(vy, 0)
+			y = rootPos.Y + effectiveVy * t - 0.5 * g * t * t
+			y = math.max(y, rootPos.Y)
+			
 			if root then
 				local probe = Vector3.new(rootPos.X + flat.X, math.max(rootPos.Y, y) + 1, rootPos.Z + flat.Z)
 				local hit = castFloor(probe, (probe.Y - y) + stand + 60)
@@ -681,7 +685,7 @@ local function buildPredictor(targetPos, targetVelocity, root, targetAirborne, p
 			y = math.max(y, rootPos.Y, groundY + rise * t)
 		end
 
-		local dy = math.clamp(y - rootPos.Y, -module.MaxVerticalLead, module.MaxVerticalLead)
+		local dy = math.clamp(y - rootPos.Y, 0, module.MaxVerticalLead) -- Prevent negative vertical lead limits
 		return rootPos + partOffset + flat + Vector3.new(0, dy + bias, 0)
 	end
 end
