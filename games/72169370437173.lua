@@ -14,6 +14,7 @@ local replicatedStorage = cloneref(game:GetService('ReplicatedStorage'))
 local collectionService = cloneref(game:GetService('CollectionService'))
 local httpService = cloneref(game:GetService('HttpService'))
 local coreGui = cloneref(game:GetService('CoreGui'))
+local runService = cloneref(game:GetService('RunService'))
 local gameCamera = workspace.CurrentCamera
 local lplr = playersService.LocalPlayer
 
@@ -63,12 +64,12 @@ local function getHandler()
 	return nil
 end
 
--- Helper: is teammate
+-- Helper: is teammate (passes character to util.IsTeammate)
 local function isTeammate(plr)
 	local util = getCombatModules()
-	if util and util.IsTeammate then
-		local ok, res = pcall(util.IsTeammate, plr and plr.Character)
-		if ok then return res end
+	if util and util.IsTeammate and plr and plr.Character then
+		local ok, res = pcall(util.IsTeammate, plr.Character)
+		if ok then return res == true end
 	end
 	return false
 end
@@ -76,9 +77,9 @@ end
 -- Helper: is enemy
 local function isEnemy(plr)
 	local util = getCombatModules()
-	if util and util.IsEnemy then
-		local ok, res = pcall(util.IsEnemy, plr and plr.Character)
-		if ok then return res end
+	if util and util.IsEnemy and plr and plr.Character then
+		local ok, res = pcall(util.IsEnemy, plr.Character)
+		if ok then return res == true end
 	end
 	return false
 end
@@ -374,16 +375,24 @@ run(function()
 					end
 
 					for index, box in Boxes do
-						box.Adornee = attacked[index] and attacked[index].Entity.RootPart or nil
-						if box.Adornee then
-							box.Color3 = Color3.fromHSV(attacked[index].Check.Hue, attacked[index].Check.Sat, attacked[index].Check.Value)
-							box.Transparency = 1 - attacked[index].Check.Opacity
+						local data = attacked[index]
+						if data and data.Entity and data.Entity.RootPart then
+							box.Adornee = data.Entity.RootPart
+							box.Color3 = Color3.fromHSV(data.Check.Hue, data.Check.Sat, data.Check.Value)
+							box.Transparency = 1 - data.Check.Opacity
+						else
+							box.Adornee = nil
 						end
 					end
 
 					for index, particle in Particles do
-						particle.Position = attacked[index] and attacked[index].Entity.RootPart.Position or Vector3.new(math.huge, math.huge, math.huge)
-						particle.Parent = attacked[index] and gameCamera or nil
+						local data = attacked[index]
+						if data and data.Entity and data.Entity.RootPart then
+							particle.Position = data.Entity.RootPart.Position
+							particle.Parent = gameCamera
+						else
+							particle.Parent = nil
+						end
 					end
 
 					task.wait()
@@ -445,7 +454,7 @@ run(function()
 					box.CFrame = CFrame.new(0, -0.5, 0)
 					box.Size = Vector3.new(3, 5, 3)
 					box.ZIndex = 0
-					box.Parent = coreGui
+					box.Parent = workspace
 					Boxes[i] = box
 				end
 			else
@@ -795,7 +804,6 @@ run(function()
 				else
 					data.char = char
 					local hrp = char.HumanoidRootPart
-					local head = char:FindFirstChild('Head')
 					local pos, onScreen = gameCamera:WorldToViewportPoint(hrp.Position)
 
 					-- Team check
