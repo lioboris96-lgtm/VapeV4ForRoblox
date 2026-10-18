@@ -23,19 +23,29 @@ local function cuberoot(x)
 	return (x > 0) and math.pow(x, 1 / 3) or -math.pow(math.abs(x), 1 / 3)
 end
 
+-- Numerically stable quadratic: c0*x^2 + c1*x + c2 = 0
+-- Uses the q-form so large projectile speeds don't destroy precision via cancellation.
 local function solveQuadric(c0, c1, c2)
-	local p = c1 / (2 * c0)
-	local q = c2 / c0
-	local D = p * p - q
-
-	if isZero(D) then
-		return {-p}
-	elseif D < 0 then
-		return {}
+	if isZero(c0) then
+		if isZero(c1) then return {} end
+		return {-c2 / c1}
 	end
 
-	local sqrtD = math.sqrt(D)
-	return {sqrtD - p, -sqrtD - p}
+	local disc = c1 * c1 - 4 * c0 * c2
+	if disc < 0 then return {} end
+
+	local sqrtDisc = math.sqrt(disc)
+	if isZero(disc) then
+		return {-c1 / (2 * c0)}
+	end
+
+	-- q-form: avoids catastrophic cancellation when speed^2 dwarfs everything
+	local signed = sqrtDisc
+	if c1 < 0 then signed = -sqrtDisc end
+	local q = -0.5 * (c1 + signed)
+	if isZero(q) then return {-c1 / (2 * c0)} end
+
+	return {q / c0, c2 / q}
 end
 
 local function solveCubic(c0, c1, c2, c3)
@@ -82,6 +92,10 @@ end
 
 function module.solveQuartic(c0, c1, c2, c3, c4)
 	if isZero(c0) then
+		if isZero(c1) then
+			if isZero(c2) then return {} end
+			return {-c3 / c2}
+		end
 		return solveCubic(c1, c2, c3, c4)
 	end
 
@@ -95,39 +109,46 @@ function module.solveQuartic(c0, c1, c2, c3, c4)
 	local q = 0.125 * sqA * A - 0.5 * A * B + C
 	local r = -(3 / 256) * sqA * sqA + 0.0625 * sqA * B - 0.25 * A * C + D
 
-	local results
+	local results = {}
 
 	if isZero(r) then
 		results = solveCubic(1, 0, p, q)
-		table.insert(results, 0)
+		table.insert(results, 1, 0)
 	else
+		-- Try EVERY real resolvent root. Using only cubic[1] made fast
+		-- projectiles return no roots at all (u/v went imaginary).
 		local cubic = solveCubic(1, -0.5 * p, -r, 0.5 * r * p - 0.125 * q * q)
-		local z = cubic[1]
-		if not z then return {} end
 
-		local u = z * z - r
-		local v = 2 * z - p
+		for i = 1, #cubic do
+			local z = cubic[i]
+			if validNumber(z) then
+				local u = z * z - r
+				local v = 2 * z - p
 
-		if isZero(u) then
-			u = 0
-		elseif u > 0 then
-			u = math.sqrt(u)
-		else
-			return {}
-		end
+				if u >= -eps and v >= -eps then
+					if u < 0 then u = 0 end
+					if v < 0 then v = 0 end
 
-		if isZero(v) then
-			v = 0
-		elseif v > 0 then
-			v = math.sqrt(v)
-		else
-			return {}
-		end
+					u = math.sqrt(u)
+					v = math.sqrt(v)
 
-		results = solveQuadric(1, q < 0 and -v or v, z - u)
-		local second = solveQuadric(1, q < 0 and v or -v, z + u)
-		for _, root in second do
-			table.insert(results, root)
+					if q < 0 then
+						for _, root in solveQuadric(1, -v, z - u) do
+							table.insert(results, root)
+						end
+						for _, root in solveQuadric(1, v, z + u) do
+							table.insert(results, root)
+						end
+					else
+						for _, root in solveQuadric(1, v, z - u) do
+							table.insert(results, root)
+						end
+						for _, root in solveQuadric(1, -v, z + u) do
+							table.insert(results, root)
+						end
+					end
+				end
+			end
 		end
 	end
 
@@ -141,6 +162,11 @@ end
 local function interceptResidual(relativePosition, targetVelocity, halfRelativeAcceleration, projectileSpeed, t)
 	local offset = relativePosition + targetVelocity * t + halfRelativeAcceleration * (t * t)
 	return offset:Dot(offset) - projectileSpeed * projectileSpeed * t * t
+end
+
+-- Residual of the polynomial form, used to reject spurious roots
+local function polyResidual(c0, c1, c2, c3, c4, t)
+	return c0 * (t * t * t * t) + c1 * (t * t * t) + c2 * (t * t) + c3 * t + c4
 end
 
 function module.SolveIntercept(origin, projectileSpeed, projectileAcceleration, targetPosition, targetVelocity, targetAcceleration, minimumTime, maximumTime, preferHigh)
@@ -163,19 +189,36 @@ function module.SolveIntercept(origin, projectileSpeed, projectileAcceleration, 
 	local relativePosition = targetPosition - origin
 	local halfRelativeAcceleration = (targetAcceleration - projectileAcceleration) * 0.5
 	local bestTime
+	local bestError
+
+	-- Validate a candidate intercept time.
+	-- Uses *relative distance error* rather than raw squared residual, so the
+	-- tolerance does not balloon with projectile speed (the old check used
+	-- speed^2 * t^2 and therefore accepted garbage roots for fast shots).
+	local function rootError(root)
+		local offset = relativePosition + targetVelocity * root + halfRelativeAcceleration * (root * root)
+		local travelled = projectileSpeed * root
+		local dist = offset.Magnitude
+		if travelled < eps then return dist end
+		return math.abs(dist - travelled) / travelled
+	end
 
 	local function acceptRoot(root)
 		if not validNumber(root) or root < minT or root > maxT then return end
-		local residual = math.abs(interceptResidual(relativePosition, targetVelocity, halfRelativeAcceleration, projectileSpeed, root))
-		local scale = math.max(projectileSpeed * projectileSpeed * root * root, 1)
-		if residual <= math.max(0.05, scale * 0.001) then
-			if not bestTime then
-				bestTime = root
-			elseif wantHigh then
-				if root > bestTime then bestTime = root end
-			elseif root < bestTime then
-				bestTime = root
+		local err = rootError(root)
+		if err > 1e-3 then return end
+
+		if not bestTime then
+			bestTime, bestError = root, err
+		elseif wantHigh then
+			if root > bestTime then
+				bestTime, bestError = root, err
 			end
+		elseif root < bestTime then
+			bestTime, bestError = root, err
+		elseif err < bestError then
+			-- same time, better fit
+			bestError = err
 		end
 	end
 
@@ -193,17 +236,16 @@ function module.SolveIntercept(origin, projectileSpeed, projectileAcceleration, 
 			end
 		end
 	elseif math.abs(c2) > eps then
-		local discriminant = c1 * c1 - 4 * c2 * c0
-		if discriminant >= 0 then
-			local squareRoot = math.sqrt(discriminant)
-			acceptRoot((-c1 - squareRoot) / (2 * c2))
-			acceptRoot((-c1 + squareRoot) / (2 * c2))
+		for _, root in solveQuadric(c2, c1, c0) do
+			acceptRoot(root)
 		end
 	elseif math.abs(c1) > eps then
 		acceptRoot(-c0 / c1)
 	end
 
 	if not bestTime then
+		-- Refine every sign change instead of committing to the first one;
+		-- the residual can cross zero more than once.
 		local steps = 96
 		local previousTime = minT
 		local previousValue = interceptResidual(relativePosition, targetVelocity, halfRelativeAcceleration, projectileSpeed, previousTime)
@@ -214,23 +256,21 @@ function module.SolveIntercept(origin, projectileSpeed, projectileAcceleration, 
 
 			if validNumber(previousValue) and validNumber(currentValue) then
 				if previousValue == 0 then
-					bestTime = previousTime
-					break
-				end
-				if (previousValue < 0) ~= (currentValue < 0) then
+					acceptRoot(previousTime)
+				elseif (previousValue < 0) ~= (currentValue < 0) then
 					local low, high = previousTime, currentTime
+					local lowValue = previousValue
 					for _ = 1, 48 do
 						local mid = (low + high) * 0.5
 						local midValue = interceptResidual(relativePosition, targetVelocity, halfRelativeAcceleration, projectileSpeed, mid)
 						if not validNumber(midValue) then break end
-						if (previousValue < 0) == (midValue < 0) then
-							low = mid
+						if (lowValue < 0) == (midValue < 0) then
+							low, lowValue = mid, midValue
 						else
 							high = mid
 						end
 					end
-					bestTime = (low + high) * 0.5
-					break
+					acceptRoot((low + high) * 0.5)
 				end
 			end
 
@@ -243,6 +283,9 @@ function module.SolveIntercept(origin, projectileSpeed, projectileAcceleration, 
 
 	local displacement = relativePosition + targetVelocity * bestTime + halfRelativeAcceleration * (bestTime * bestTime)
 	if displacement.Magnitude <= eps then return nil end
+
+	-- Sanity: reject roots so far out they are physically implausible for this shot.
+	if bestTime > maxT then return nil end
 
 	local initialVelocity = displacement / bestTime
 	return {
@@ -667,7 +710,7 @@ local function buildPredictor(targetPos, targetVelocity, root, targetAirborne, p
 			local effectiveVy = math.max(vy, 0)
 			y = rootPos.Y + effectiveVy * t - 0.5 * g * t * t
 			y = math.max(y, rootPos.Y)
-			
+
 			if root then
 				local probe = Vector3.new(rootPos.X + flat.X, math.max(rootPos.Y, y) + 1, rootPos.Z + flat.Z)
 				local hit = castFloor(probe, (probe.Y - y) + stand + 60)
@@ -723,9 +766,17 @@ module.SolveTrajectory = function(origin, projectileSpeed, gravity, targetPos, t
 	end
 
 	local projectileAccel = Vector3.new(0, -gravity, 0)
-	local maxTime = 10
-	if validNumber(minimumTime) then
-		maxTime = math.max(maxTime, minimumTime + 1)
+
+	-- Bound the search horizon physically: a shot can never reasonably take
+	-- longer than the straight-line time plus generous margin. Without this the
+	-- solver can latch onto far-out roots and produce wild predictions.
+	local straightTime = (targetPos - origin).Magnitude / projectileSpeed
+	local maxTime = math.min(
+		math.max(straightTime * 3 + 0.5, 0.25),
+		validNumber(minimumTime) and math.max(minimumTime * 2 + 1, minimumTime + 0.5) or math.huge
+	)
+	if validNumber(minimumTime) and minimumTime > maxTime then
+		maxTime = minimumTime + 0.5
 	end
 
 	local root = typeof(targetRoot) == 'Instance' and targetRoot or (typeof(targetRootPosition) == 'Instance' and targetRootPosition) or nil
@@ -738,14 +789,30 @@ module.SolveTrajectory = function(origin, projectileSpeed, gravity, targetPos, t
 		return targetPos, targetPos, 0
 	end
 
+	-- Iterate the moving-target intercept to convergence, with damping and an
+	-- oscillation guard. The undamped loop could diverge and leave the aim
+	-- oscillating between two wildly different points.
 	local aimPoint = targetPos
-	for _ = 1, 8 do
+	local previousDelta = nil
+	for _ = 1, 12 do
 		local nextAim = predict(solution.FlightTime + latency)
 		local nextSolution = solveStatic(origin, projectileSpeed, projectileAccel, nextAim, minimumTime, maxTime)
 		if not nextSolution then break end
-		local settled = math.abs(nextSolution.FlightTime - solution.FlightTime) < 0.001
+
+		local delta = nextSolution.FlightTime - solution.FlightTime
+
+		-- Oscillation / divergence guard
+		if previousDelta and delta * previousDelta < 0 and math.abs(delta) > 1e-4 then
+			break
+		end
+		if previousDelta and math.abs(delta) > math.abs(previousDelta) * 1.5 then
+			break
+		end
+
+		local settled = math.abs(delta) < 0.0005
 		solution = nextSolution
 		aimPoint = nextAim
+		previousDelta = delta
 		if settled then break end
 	end
 
