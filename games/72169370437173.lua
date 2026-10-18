@@ -710,6 +710,7 @@ run(function()
 	local TextColor
 	local TextSize
 	local TeamCheck
+	local ShowTeammates
 	local nametagObjects = {}
 
 	local function createNametag(plr)
@@ -769,10 +770,19 @@ run(function()
 			if not plr or not plr.Parent or not data.char or not data.char.Parent then
 				removeNametag(plr)
 			else
+				local friend = isTeammate(plr)
+
+				-- Filter: hide teammate nametags when disabled
+				if friend and not ShowTeammates.Enabled then
+					data.bb.Enabled = false
+				else
+					data.bb.Enabled = true
+				end
+
 				-- Team check coloring
 				local color = Color3.fromHSV(TextColor.Hue, TextColor.Sat, TextColor.Value)
 				if TeamCheck.Enabled then
-					if isTeammate(plr) then
+					if friend then
 						color = Color3.fromRGB(0, 255, 0)
 					elseif isEnemy(plr) then
 						color = Color3.fromRGB(255, 0, 0)
@@ -799,7 +809,7 @@ run(function()
 	end
 
 	Nametags = vape.Categories.Render:CreateModule({
-		Name = 'Nametags',
+		Name = 'Tribes Nametags',
 		Function = function(callback)
 			if callback then
 				-- Create nametags for existing players
@@ -853,6 +863,11 @@ run(function()
 	TeamCheck = Nametags:CreateToggle({
 		Name = 'Team check colors'
 	})
+	ShowTeammates = Nametags:CreateToggle({
+		Name = 'Show teammates',
+		Default = true,
+		Tooltip = 'When off, teammate nametags are hidden'
+	})
 	TextColor = Nametags:CreateColorSlider({
 		Name = 'Text color',
 		DefaultHue = 0,
@@ -876,6 +891,7 @@ run(function()
 	local ShowTracers
 	local ShowNames
 	local TeamCheck
+	local ShowTeammates
 	local espObjects = {}
 
 	local function createESP(plr)
@@ -933,58 +949,66 @@ run(function()
 					data.char = char
 					local hrp = char.HumanoidRootPart
 					local pos, onScreen = gameCamera:WorldToViewportPoint(hrp.Position)
+					local friend = isTeammate(plr)
 
-					-- Team check
-					local boxColor = Color3.fromHSV(BoxColor.Hue, BoxColor.Sat, BoxColor.Value)
-					local tracerColor = Color3.fromHSV(TracerColor.Hue, TracerColor.Sat, TracerColor.Value)
-					if TeamCheck.Enabled then
-						if isTeammate(plr) then
-							boxColor = Color3.fromRGB(0, 255, 0)
-							tracerColor = Color3.fromRGB(0, 255, 0)
-						elseif isEnemy(plr) then
-							boxColor = Color3.fromRGB(255, 0, 0)
-							tracerColor = Color3.fromRGB(255, 0, 0)
-						end
-					end
-
-					if onScreen then
-						-- Box
-						if ShowBoxes.Enabled then
-							local topPos = gameCamera:WorldToViewportPoint(hrp.Position + Vector3.new(0, 3, 0))
-							local bottomPos = gameCamera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
-							local height = math.abs(topPos.Y - bottomPos.Y)
-							local width = height * 0.6
-							data.drawings.box.Size = Vector2.new(width, height)
-							data.drawings.box.Position = Vector2.new(pos.X - width / 2, pos.Y - height / 2)
-							data.drawings.box.Color = boxColor
-							data.drawings.box.Visible = true
-						else
-							data.drawings.box.Visible = false
-						end
-
-						-- Tracer
-						if ShowTracers.Enabled then
-							data.drawings.tracer.From = Vector2.new(gameCamera.ViewportSize.X / 2, gameCamera.ViewportSize.Y)
-							data.drawings.tracer.To = Vector2.new(pos.X, pos.Y)
-							data.drawings.tracer.Color = tracerColor
-							data.drawings.tracer.Visible = true
-						else
-							data.drawings.tracer.Visible = false
-						end
-
-						-- Name
-						if ShowNames.Enabled then
-							data.drawings.name.Text = plr.Name
-							data.drawings.name.Position = Vector2.new(pos.X, pos.Y - 40)
-							data.drawings.name.Color = boxColor
-							data.drawings.name.Visible = true
-						else
-							data.drawings.name.Visible = false
-						end
-					else
+					-- Filter: hide teammate esp when disabled
+					if friend and not ShowTeammates.Enabled then
 						for _, d in data.drawings do
 							d.Visible = false
 						end
+					else
+						if onScreen then
+							-- Box
+							if ShowBoxes.Enabled then
+								local topPos = gameCamera:WorldToViewportPoint(hrp.Position + Vector3.new(0, 3, 0))
+								local bottomPos = gameCamera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
+								local height = math.abs(topPos.Y - bottomPos.Y)
+								local width = height * 0.6
+								data.drawings.box.Size = Vector2.new(width, height)
+								data.drawings.box.Position = Vector2.new(pos.X - width / 2, pos.Y - height / 2)
+								data.drawings.box.Visible = true
+							else
+								data.drawings.box.Visible = false
+							end
+
+							-- Tracer
+							if ShowTracers.Enabled then
+								data.drawings.tracer.From = Vector2.new(gameCamera.ViewportSize.X / 2, gameCamera.ViewportSize.Y)
+								data.drawings.tracer.To = Vector2.new(pos.X, pos.Y)
+								data.drawings.tracer.Visible = true
+							else
+								data.drawings.tracer.Visible = false
+							end
+
+							-- Name
+							if ShowNames.Enabled then
+								data.drawings.name.Text = plr.Name
+								data.drawings.name.Position = Vector2.new(pos.X, pos.Y - 40)
+								data.drawings.name.Visible = true
+							else
+								data.drawings.name.Visible = false
+							end
+						else
+							for _, d in data.drawings do
+								d.Visible = false
+							end
+						end
+
+						-- Team check coloring
+						local boxColor = Color3.fromHSV(BoxColor.Hue, BoxColor.Sat, BoxColor.Value)
+						local tracerColor = Color3.fromHSV(TracerColor.Hue, TracerColor.Sat, TracerColor.Value)
+						if TeamCheck.Enabled then
+							if friend then
+								boxColor = Color3.fromRGB(0, 255, 0)
+								tracerColor = Color3.fromRGB(0, 255, 0)
+							elseif isEnemy(plr) then
+								boxColor = Color3.fromRGB(255, 0, 0)
+								tracerColor = Color3.fromRGB(255, 0, 0)
+							end
+						end
+						data.drawings.box.Color = boxColor
+						data.drawings.tracer.Color = tracerColor
+						data.drawings.name.Color = boxColor
 					end
 				end
 			end
@@ -992,7 +1016,7 @@ run(function()
 	end
 
 	ESP = vape.Categories.Render:CreateModule({
-		Name = 'ESP',
+		Name = 'Tribes ESP',
 		Function = function(callback)
 			if callback then
 				for _, plr in playersService:GetPlayers() do
@@ -1044,6 +1068,11 @@ run(function()
 	})
 	TeamCheck = ESP:CreateToggle({
 		Name = 'Team check'
+	})
+	ShowTeammates = ESP:CreateToggle({
+		Name = 'Show teammates',
+		Default = true,
+		Tooltip = 'When off, teammate esp is hidden'
 	})
 	BoxColor = ESP:CreateColorSlider({
 		Name = 'Box color',
