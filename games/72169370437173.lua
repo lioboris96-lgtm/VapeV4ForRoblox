@@ -24,6 +24,19 @@ local prediction = vape.Libraries.prediction
 local targetinfo = vape.Libraries.targetinfo
 local tween = vape.Libraries.tween
 
+local tribesReady = false
+task.spawn(function()
+	for i = 1, 60 do
+		if typeof(tribes) == 'table' and tribes.Util and tribes.State then
+			tribesReady = true
+			vape:CreateNotification('Tribes', 'Game functions detected.', 5)
+			return
+		end
+		task.wait(1)
+	end
+	vape:CreateNotification('Tribes', 'Warning: tribes global not found after 60s.', 10, 'alert')
+end)
+
 run(function()
 	local SilentAim
 	local Target
@@ -101,6 +114,13 @@ run(function()
 			end
 
 			if callback then
+				if typeof(tribes) ~= 'table' or not tribes.Util or not tribes.Util.AimDirection then
+					vape:CreateNotification('SilentAim', 'tribes.Util.AimDirection not found. Is the game fully loaded?', 10, 'alert')
+					return
+				end
+
+				vape:CreateNotification('SilentAim', 'Hooking tribes.Util.AimDirection...', 5)
+
 				old = hookfunction(tribes.Util.AimDirection, function(...)
 					return Hook(...)
 				end)
@@ -234,7 +254,7 @@ run(function()
 			if not inputService:IsMouseButtonPressed(0) then return false end
 		end
 
-		if tribes.State.handler and tribes.State.handler.lastSwing then
+		if tribes.State and tribes.State.handler and tribes.State.handler.lastSwing then
 			return tribes.State.tool
 		end
 	end
@@ -243,12 +263,22 @@ run(function()
 		Name = 'Killaura',
 		Function = function(callback)
 			if callback then
+				if typeof(tribes) ~= 'table' or not tribes.State then
+					vape:CreateNotification('Killaura', 'tribes.State not found. Is the game fully loaded?', 10, 'alert')
+					return
+				end
+
 				repeat
 					local tool = getAttackData()
 					local attacked = {}
 
 					if tool then
 						local handler = tribes.State.handler
+						if not handler then
+							task.wait(0.5)
+							continue
+						end
+
 						local entities = entitylib.AllPosition({
 							Range = AttackRange.Value,
 							Wallcheck = Targets.Walls.Enabled or nil,
