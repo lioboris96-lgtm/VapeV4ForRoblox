@@ -84,8 +84,46 @@ local function isEnemy(plr)
 	return false
 end
 
+-- Body parts to check for "Visible" aimpart mode
+local aimParts = {'Head', 'UpperTorso', 'LowerTorso', 'HumanoidRootPart', 'LeftUpperArm', 'RightUpperArm', 'LeftLowerArm', 'RightLowerArm', 'LeftUpperLeg', 'RightUpperLeg', 'LeftLowerLeg', 'RightLowerLeg'}
+
+-- Helper: find best visible part on a character (wallcheck)
+local function getVisiblePart(char, origin)
+	if not char then return nil end
+	local rayParams = RaycastParams.new()
+	rayParams.FilterDescendantsInstances = {lplr.Character, gameCamera}
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	for _, partName in aimParts do
+		local part = char:FindFirstChild(partName)
+		if part and part:IsA('BasePart') then
+			local ray = workspace:Raycast(origin, part.Position - origin, rayParams)
+			if not ray or ray.Instance:IsDescendantOf(char) then
+				return part
+			end
+		end
+	end
+	-- Fallback to HumanoidRootPart
+	return char:FindFirstChild('HumanoidRootPart')
+end
+
+-- Helper: get aim part position based on aimpart setting
+local function getAimPart(entity, aimPartSetting, origin)
+	if aimPartSetting == 'Head' then
+		return entity.Head or entity.RootPart
+	elseif aimPartSetting == 'Humanoid' then
+		return entity.RootPart
+	elseif aimPartSetting == 'Visible' then
+		local part = getVisiblePart(entity.Character, origin)
+		if part then return part end
+		return entity.RootPart
+	else
+		-- Default to RootPart
+		return entity.RootPart
+	end
+end
+
 -- Helper: get best target entity (filters teammates)
-local function getBestTarget(range, players, npcs, part)
+local function getBestTarget(range, players, npcs, aimPartSetting)
 	local mouseLocation = inputService:GetMouseLocation()
 	local bestEntity = nil
 	local bestMag = range + 1
@@ -101,9 +139,11 @@ local function getBestTarget(range, players, npcs, part)
 			continue
 		end
 		if not entity.Targetable then continue end
-		if not entity[part] then continue end
 
-		local position, vis = gameCamera:WorldToViewportPoint(entity[part].Position)
+		local part = entity.RootPart
+		if not part then continue end
+
+		local position, vis = gameCamera:WorldToViewportPoint(part.Position)
 		if not vis then continue end
 		local mag = (mouseLocation - Vector2.new(position.X, position.Y)).Magnitude
 		if mag > range then continue end
@@ -122,6 +162,7 @@ run(function()
 	local Target
 	local Range
 	local HitChance
+	local AimPart
 	local CircleColor
 	local CircleTransparency
 	local CircleFilled
@@ -133,10 +174,10 @@ run(function()
 		if not util or not shared then return old and old(origin) end
 
 		local handler = getHandler()
-		local entity = getBestTarget(Range.Value, Target.Players.Enabled, Target.NPCs.Enabled, 'RootPart')
+		local entity = getBestTarget(Range.Value, Target.Players.Enabled, Target.NPCs.Enabled, AimPart.Value)
 
 		if entity then
-			local targetPart = entity.RootPart
+			local targetPart = getAimPart(entity, AimPart.Value, origin)
 			targetinfo.Targets[entity] = os.clock() + 1
 
 			local projSpeed = 200
@@ -208,6 +249,14 @@ run(function()
 	Target = SilentAim:CreateTargets({
 		Players = true,
 		NPCs = true
+	})
+	AimPart = SilentAim:CreateDropdown({
+		Name = 'Aim Part',
+		List = {'RootPart', 'Head', 'Humanoid', 'Visible'},
+		Function = function(val)
+			-- Update circle if needed
+		end,
+		Tooltip = 'RootPart - Aims at torso\nHead - Aims at head\nHumanoid - Aims at root part\nVisible - Aims at first visible part (wallcheck)'
 	})
 	Range = SilentAim:CreateSlider({
 		Name = 'Range',
