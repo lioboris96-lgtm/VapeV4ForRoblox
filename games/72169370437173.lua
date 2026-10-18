@@ -183,6 +183,7 @@ run(function()
 	local Range
 	local HitChance
 	local AimPart
+	local NoPredictRange
 	local CircleColor
 	local CircleTransparency
 	local CircleFilled
@@ -199,6 +200,22 @@ run(function()
 		if entity then
 			local targetPart = getAimPart(entity, AimPart.Value, origin)
 			targetinfo.Targets[entity] = os.clock() + 1
+
+			-- Close range: aim directly at the part, skip trajectory prediction
+			local directRange = NoPredictRange and NoPredictRange.Value or 0
+			if directRange > 0 then
+				local myRoot = entitylib.isAlive and entitylib.character and entitylib.character.RootPart
+				if myRoot then
+					local flatDelta = Vector3.new(
+						targetPart.Position.X - myRoot.Position.X,
+						0,
+						targetPart.Position.Z - myRoot.Position.Z
+					)
+					if flatDelta.Magnitude <= directRange then
+						return (targetPart.Position - origin).Unit
+					end
+				end
+			end
 
 			local projSpeed = 200
 			local projGravity = 0
@@ -298,6 +315,20 @@ run(function()
 		Max = 100,
 		Default = 100,
 		Suffix = '%'
+	})
+	NoPredictRange = SilentAim:CreateSlider({
+		Name = 'No Prediction Range',
+		Min = 0,
+		Max = 1000,
+		Default = 0,
+		Decimal = 10,
+		Suffix = function(val)
+			if val == 0 then
+				return 'off'
+			end
+			return val == 1 and 'stud' or 'studs'
+		end,
+		Tooltip = 'Inside this distance the aim goes straight at the target instead of solving a trajectory. 0 disables it.'
 	})
 	SilentAim:CreateToggle({
 		Name = 'Range Circle',
