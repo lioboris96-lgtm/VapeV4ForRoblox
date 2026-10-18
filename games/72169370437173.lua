@@ -84,6 +84,39 @@ local function isEnemy(plr)
 	return false
 end
 
+-- Helper: get best target entity (filters teammates)
+local function getBestTarget(range, players, npcs, part)
+	local mouseLocation = inputService:GetMouseLocation()
+	local bestEntity = nil
+	local bestMag = range + 1
+	for _, entity in entitylib.List do
+		if players and entity.Player then
+			-- Team check: skip teammates
+			if isTeammate(entity.Player) then
+				continue
+			end
+		elseif npcs and entity.NPC then
+			-- NPCs are always targets
+		else
+			continue
+		end
+		if not entity.Targetable then continue end
+		if not entity[part] then continue end
+
+		local position, vis = gameCamera:WorldToViewportPoint(entity[part].Position)
+		if not vis then continue end
+		local mag = (mouseLocation - Vector2.new(position.X, position.Y)).Magnitude
+		if mag > range then continue end
+		if entitylib.isVulnerable(entity) then
+			if not bestEntity or mag < bestMag then
+				bestEntity = entity
+				bestMag = mag
+			end
+		end
+	end
+	return bestEntity
+end
+
 run(function()
 	local SilentAim
 	local Target
@@ -100,12 +133,7 @@ run(function()
 		if not util or not shared then return old and old(origin) end
 
 		local handler = getHandler()
-		local entity = entitylib.EntityMouse({
-			Range = Range.Value,
-			Part = 'RootPart',
-			Players = Target.Players.Enabled,
-			NPCs = Target.NPCs.Enabled
-		})
+		local entity = getBestTarget(Range.Value, Target.Players.Enabled, Target.NPCs.Enabled, 'RootPart')
 
 		if entity then
 			local targetPart = entity.RootPart
@@ -199,7 +227,7 @@ run(function()
 		Name = 'Hit Chance',
 		Min = 0,
 		Max = 100,
-		Default = 85,
+		Default = 100,
 		Suffix = '%'
 	})
 	SilentAim:CreateToggle({
