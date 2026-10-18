@@ -1,5 +1,9 @@
 local run = function(func)
-	func()
+	if setthreadidentity then setthreadidentity(8) end
+	local suc, err = pcall(func)
+	if not suc and err then
+		warn('[Vape] Game module error: '..tostring(err))
+	end
 end
 local cloneref = cloneref or function(obj)
 	return obj
