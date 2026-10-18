@@ -24,18 +24,44 @@ local prediction = vape.Libraries.prediction
 local targetinfo = vape.Libraries.targetinfo
 local tween = vape.Libraries.tween
 
-local tribesReady = false
-task.spawn(function()
-	for i = 1, 60 do
-		if typeof(tribes) == 'table' and tribes.Util and tribes.State then
-			tribesReady = true
-			vape:CreateNotification('Tribes', 'Game functions detected.', 5)
-			return
-		end
-		task.wait(1)
+-- Game-specific module references
+local combatUtil = nil
+local combatShared = nil
+local combatController = nil
+local function getCombatModules()
+	if not combatUtil then
+		pcall(function()
+			combatUtil = require(lplr.PlayerScripts.Combat.Util)
+		end)
 	end
-	vape:CreateNotification('Tribes', 'Warning: tribes global not found after 60s.', 10, 'alert')
-end)
+	if not combatShared then
+		pcall(function()
+			combatShared = require(replicatedStorage.Shared.Combat)
+		end)
+	end
+	if not combatController then
+		pcall(function()
+			combatController = require(lplr.PlayerScripts.Combat.Controller)
+		end)
+	end
+	return combatUtil, combatShared, combatController
+end
+
+-- Helper to get the current handler from controller state
+local function getHandler()
+	local util, shared, controller = getCombatModules()
+	if not controller then return nil end
+	local stateFn = controller.State
+	if type(stateFn) ~= 'function' then return nil end
+	local ok, uvs = pcall(debug.getupvalues, stateFn)
+	if not ok or type(uvs) ~= 'table' then return nil end
+	for i, v in uvs do
+		if type(v) == 'table' and v.char ~= nil then
+			return v.handler
+		end
+	end
+	return nil
+end
 
 run(function()
 	local SilentAim
@@ -48,62 +74,53 @@ run(function()
 	local CircleObject
 	local old
 
-	local function Hook(...)
-		local handler
+	local function Hook(origin)
+		local util, shared, controller = getCombatModules()
+		if not util or not shared then return old and old(origin) end
 
-		for _, obj in debug.getstack(3) do
-			if type(obj) == 'table' and rawget(obj, 'tuning') then
-				handler = obj
-				break
+		local handler = getHandler()
+		local entity = entitylib.EntityMouse({
+			Range = Range.Value,
+			Part = 'RootPart',
+			Players = Target.Players.Enabled,
+			NPCs = Target.NPCs.Enabled
+		})
+
+		if entity then
+			local targetPart = entity.RootPart
+			targetinfo.Targets[entity] = os.clock() + 1
+
+			-- Get projectile info from tuning if available
+			local projSpeed = 200
+			local projGravity = 0
+			if handler and type(handler.tuning) == 'table' then
+				projSpeed = handler.tuning.speedMult and (handler.tuning.speedMult * 100) or projSpeed
+				if handler.tuning.speed then projSpeed = handler.tuning.speed end
+				if handler.tuning.speedMax then projSpeed = handler.tuning.speedMax end
+				if handler.tuning.gravity then projGravity = math.abs(handler.tuning.gravity) end
 			end
-		end
 
-		if handler then
-			local entity = entitylib.EntityMouse({
-				Range = Range.Value,
-				Part = 'RootPart',
-				Players = Target.Players.Enabled,
-				NPCs = Target.NPCs.Enabled
-			})
-
-			if entity then
-				local targetPart = entity.RootPart
-				local origin = ... or gameCamera.CFrame.Position
-				local projSpeed = handler.tuning.speed or (handler.tuning.speedMax or 200)
-
-				if handler.drawStart then
-					projSpeed = select(2, tribes.Combat.DrawnShot(handler.tuning, debug.getstack(3, 4)))
-				end
-
-				local calc = prediction.SolveTrajectory(origin, projSpeed, math.abs(handler.tuning.gravity or (handler.spreadNow and 0 or 60)), targetPart.Position, entity.RootPart.AssemblyLinearVelocity)
-				if calc then
-					local lookDir = CFrame.lookAt(origin, calc).LookVector
-					targetinfo.Targets[entity] = os.clock() + 1
-
-					if handler.lastThrow then
-						return (lookDir - Vector3.new(0, ((handler.kind == 'Bomb') and 0.16) or (((handler.kind == 'Sling') and 0.05) or (((handler.kind ~= 'Javelin') and 0.01) or 0.04)), 0)).Unit
-					end
-
-					if handler.lastShot and handler.kind ~= 'Blunderbuss' then
-						local spread
-						if handler.kind == 'Crossbow' then
-							spread = 0
-						elseif handler:Aimed() then
-							spread = handler.tuning.spreadAim or 0
-						else
-							spread = handler.tuning.spreadHip or 0
-						end
-
-						local spreadDir = tribes.Combat.SpreadDir(lookDir, spread, handler:Seed(tribes.State.shotId + 1), 0)
-						return (CFrame.lookAt(Vector3.zero, lookDir) * CFrame.lookAt(Vector3.zero, lookDir):ToObjectSpace(CFrame.lookAt(Vector3.zero, spreadDir)):Inverse()).LookVector
-					end
-
-					return lookDir
+			-- Try DrawnShot for drawn weapons (bows)
+			if handler and handler.drawStart and shared.DrawnShot then
+				local ok, res = pcall(shared.DrawnShot, handler.tuning, debug.getstack and 0 or 0)
+				if ok and type(res) == 'number' then
+					projSpeed = res
 				end
 			end
+
+			local calc = prediction.SolveTrajectory(origin, projSpeed, projGravity, targetPart.Position, entity.RootPart.AssemblyLinearVelocity)
+			if calc then
+				return (calc - origin).Unit
+			end
+
+			-- Fallback: direct line to target
+			return (targetPart.Position - origin).Unit
 		end
 
-		return old(...)
+		if old then
+			return old(origin)
+		end
+		return nil
 	end
 
 	SilentAim = vape.Categories.Combat:CreateModule({
@@ -114,30 +131,32 @@ run(function()
 			end
 
 			if callback then
-				if typeof(tribes) ~= 'table' or not tribes.Util or not tribes.Util.AimDirection then
-					vape:CreateNotification('SilentAim', 'tribes.Util.AimDirection not found. Is the game fully loaded?', 10, 'alert')
+				local util = getCombatModules()
+				if not util or not util.AimDirection then
+					vape:CreateNotification('SilentAim', 'Combat.Util not found.', 10, 'alert')
 					return
 				end
 
-				vape:CreateNotification('SilentAim', 'Hooking tribes.Util.AimDirection...', 5)
-
-				old = hookfunction(tribes.Util.AimDirection, function(...)
-					return Hook(...)
+				vape:CreateNotification('SilentAim', 'Hooking AimDirection...', 5)
+				old = hookfunction(util.AimDirection, function(origin)
+					return Hook(origin)
 				end)
 
 				repeat
 					if CircleObject then
 						CircleObject.Position = inputService:GetMouseLocation()
 					end
-
 					task.wait()
 				until not SilentAim.Enabled
 			else
 				if old then
-					if restorefunction then
-						restorefunction(tribes.Util.AimDirection)
-					else
-						hookfunction(tribes.Util.AimDirection, old)
+					local util = getCombatModules()
+					if util and util.AimDirection then
+						if restorefunction then
+							restorefunction(util.AimDirection)
+						else
+							hookfunction(util.AimDirection, old)
+						end
 					end
 					old = nil
 				end
@@ -235,7 +254,6 @@ end)
 run(function()
 	local Killaura
 	local Targets
-	local SwingRange
 	local AttackRange
 	local AngleSlider
 	local Max
@@ -254,26 +272,23 @@ run(function()
 			if not inputService:IsMouseButtonPressed(0) then return false end
 		end
 
-		if tribes.State and tribes.State.handler and tribes.State.handler.lastSwing then
-			return tribes.State.tool
+		local handler = getHandler()
+		if handler and handler.lastSwing then
+			return handler.ctx and handler.ctx.tool
 		end
+		return nil
 	end
 
 	Killaura = vape.Categories.Blatant:CreateModule({
 		Name = 'Killaura',
 		Function = function(callback)
 			if callback then
-				if typeof(tribes) ~= 'table' or not tribes.State then
-					vape:CreateNotification('Killaura', 'tribes.State not found. Is the game fully loaded?', 10, 'alert')
-					return
-				end
-
 				repeat
 					local tool = getAttackData()
 					local attacked = {}
 
 					if tool then
-						local handler = tribes.State.handler
+						local handler = getHandler()
 						if not handler then
 							task.wait(0.5)
 							continue
@@ -314,7 +329,7 @@ run(function()
 									entitylib.character.RootPart.CFrame = CFrame.lookAlong(localPos, delta * Vector3.new(1, 0, 1))
 								end
 
-								if AttackDelay < os.clock() and (AutoBlock.Enabled or not handler.blocking) then
+								if AttackDelay < os.clock() then
 									local targets = {}
 									handler.lastSwing = os.clock()
 
@@ -323,46 +338,23 @@ run(function()
 										table.insert(targets, data.Entity.Character)
 									end
 
-									if AutoBlock.Enabled and handler.tuning.block then
-										handler:SetBlock(false)
+									local util = getCombatModules()
+									if util and util.PlayAnim and handler.ctx and handler.ctx.animator then
+										pcall(util.PlayAnim, handler.ctx.animator, handler.preset.swingSound or '', 1, 0.05)
 									end
 
-									local oneHanded = handler:OneHanded()
-									local comboTable = oneHanded and (handler.tuning.oneHanded.combo or {1}) or (handler.tuning.combo or {1})
-									local animTable = oneHanded and handler.preset.oneSwings or handler.preset.swings or {}
-									handler.combo = (handler.combo % #comboTable) + 1
-									local finisher = (#comboTable > 2) and (handler.combo == #comboTable)
-									tribes.Util.PlayAnim(handler.ctx.animator, animTable[((handler.combo - 1) % math.max(1, #animTable)) + 1], (handler.preset.swingSpeed or 1) * (finisher and 0.95 or 1), 0.05)
-
-									handler.ctx.emit('Swing', {
-										step = handler.combo,
-										finisher = finisher,
-										hitDelay = handler.preset.hitDelay or 0.1,
-										oneHanded = oneHanded
-									})
-
-									handler.ctx.send('Swing', {
-										dir = CFrame.lookAt(localPos, attacked[1].Entity.RootPart.Position).LookVector,
-										tool = tool,
-										hits = targets
-									})
-
-									if AutoBlock.Enabled and handler.tuning.block then
-										handler:SetBlock(true)
+									if handler.ctx and handler.ctx.send then
+										pcall(handler.ctx.send, 'Swing', {
+											dir = CFrame.lookAt(localPos, attacked[1].Entity.RootPart.Position).LookVector,
+											tool = tool,
+											hits = targets
+										})
 									end
 
 									if vape.ThreadFix then
 										setthreadidentity(8)
 									end
 								end
-							end
-						elseif AutoBlock.Enabled and handler.tuning.block then
-							if tribes.Util.CanAct() then
-								handler:SetBlock(true)
-							end
-
-							if vape.ThreadFix then
-								setthreadidentity(8)
 							end
 						end
 					end
