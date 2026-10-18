@@ -67,9 +67,19 @@ end
 -- Helper: is teammate (passes character to util.IsTeammate)
 local function isTeammate(plr)
 	local util = getCombatModules()
-	if util and util.IsTeammate and plr and plr.Character then
-		local ok, res = pcall(util.IsTeammate, plr.Character)
-		if ok then return res == true end
+	if util and util.IsTeammate then
+		local char = nil
+		if typeof(plr) == 'Instance' then
+			if plr:IsA('Player') then
+				char = plr.Character
+			elseif plr:IsA('Model') then
+				char = plr
+			end
+		end
+		if char then
+			local ok, res = pcall(util.IsTeammate, char)
+			if ok then return res == true end
+		end
 	end
 	return false
 end
@@ -77,9 +87,19 @@ end
 -- Helper: is enemy
 local function isEnemy(plr)
 	local util = getCombatModules()
-	if util and util.IsEnemy and plr and plr.Character then
-		local ok, res = pcall(util.IsEnemy, plr.Character)
-		if ok then return res == true end
+	if util and util.IsEnemy then
+		local char = nil
+		if typeof(plr) == 'Instance' then
+			if plr:IsA('Player') then
+				char = plr.Character
+			elseif plr:IsA('Model') then
+				char = plr
+			end
+		end
+		if char then
+			local ok, res = pcall(util.IsEnemy, char)
+			if ok then return res == true end
+		end
 	end
 	return false
 end
@@ -196,6 +216,7 @@ run(function()
 			return (targetPart.Position - origin).Unit
 		end
 
+		-- No target found: return original aim direction
 		if old then
 			return old(origin)
 		end
@@ -254,7 +275,6 @@ run(function()
 		Name = 'Aim Part',
 		List = {'RootPart', 'Head', 'Humanoid', 'Visible'},
 		Function = function(val)
-			-- Update circle if needed
 		end,
 		Tooltip = 'RootPart - Aims at torso\nHead - Aims at head\nHumanoid - Aims at root part\nVisible - Aims at first visible part (wallcheck)'
 	})
@@ -262,7 +282,7 @@ run(function()
 		Name = 'Range',
 		Min = 1,
 		Max = 1000,
-		Default = 150,
+		Default = 300,
 		Function = function(val)
 			if CircleObject then
 				CircleObject.Radius = val
