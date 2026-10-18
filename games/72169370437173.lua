@@ -63,6 +63,26 @@ local function getHandler()
 	return nil
 end
 
+-- Helper: is teammate
+local function isTeammate(plr)
+	local util = getCombatModules()
+	if util and util.IsTeammate then
+		local ok, res = pcall(util.IsTeammate, plr and plr.Character)
+		if ok then return res end
+	end
+	return false
+end
+
+-- Helper: is enemy
+local function isEnemy(plr)
+	local util = getCombatModules()
+	if util and util.IsEnemy then
+		local ok, res = pcall(util.IsEnemy, plr and plr.Character)
+		if ok then return res end
+	end
+	return false
+end
+
 run(function()
 	local SilentAim
 	local Target
@@ -90,22 +110,12 @@ run(function()
 			local targetPart = entity.RootPart
 			targetinfo.Targets[entity] = os.clock() + 1
 
-			-- Get projectile info from tuning if available
 			local projSpeed = 200
 			local projGravity = 0
 			if handler and type(handler.tuning) == 'table' then
-				projSpeed = handler.tuning.speedMult and (handler.tuning.speedMult * 100) or projSpeed
+				if handler.tuning.speedMult then projSpeed = handler.tuning.speedMult * 100 end
 				if handler.tuning.speed then projSpeed = handler.tuning.speed end
 				if handler.tuning.speedMax then projSpeed = handler.tuning.speedMax end
-				if handler.tuning.gravity then projGravity = math.abs(handler.tuning.gravity) end
-			end
-
-			-- Try DrawnShot for drawn weapons (bows)
-			if handler and handler.drawStart and shared.DrawnShot then
-				local ok, res = pcall(shared.DrawnShot, handler.tuning, debug.getstack and 0 or 0)
-				if ok and type(res) == 'number' then
-					projSpeed = res
-				end
 			end
 
 			local calc = prediction.SolveTrajectory(origin, projSpeed, projGravity, targetPart.Position, entity.RootPart.AssemblyLinearVelocity)
@@ -113,7 +123,6 @@ run(function()
 				return (calc - origin).Unit
 			end
 
-			-- Fallback: direct line to target
 			return (targetPart.Position - origin).Unit
 		end
 
@@ -308,6 +317,11 @@ run(function()
 							local localFacing = entitylib.character.RootPart.CFrame.LookVector * Vector3.new(1, 0, 1)
 
 							for _, entity in entities do
+								-- Team check: skip teammates
+								if entity.Player and isTeammate(entity.Player) then
+									continue
+								end
+
 								local delta = (entity.RootPart.Position - localPos)
 								local angle = math.abs(localFacing:Angle(delta * Vector3.new(1, 0, 1)))
 								if angle > (math.rad(AngleSlider.Value) / 2) then
@@ -431,7 +445,7 @@ run(function()
 					box.CFrame = CFrame.new(0, -0.5, 0)
 					box.Size = Vector3.new(3, 5, 3)
 					box.ZIndex = 0
-					box.Parent = vape.holder
+					box.Parent = coreGui
 					Boxes[i] = box
 				end
 			else
@@ -548,6 +562,364 @@ run(function()
 		end,
 		Darker = true,
 		Visible = false
+	})
+end)
+
+-- Nametags module
+run(function()
+	local Nametags
+	local ShowDistance
+	local ShowHealth
+	local TextColor
+	local TextSize
+	local TeamCheck
+	local nametagObjects = {}
+
+	local function createNametag(plr)
+		if plr == lplr then return end
+		if nametagObjects[plr] then return end
+
+		local char = plr.Character
+		if not char then return end
+		local head = char:FindFirstChild('Head')
+		if not head then return end
+
+		local bb = Instance.new('BillboardGui')
+		bb.Name = 'VapeNametag'
+		bb.Size = UDim2.new(0, 200, 0, 50)
+		bb.StudsOffset = Vector3.new(0, 3, 0)
+		bb.AlwaysOnTop = true
+		bb.MaxDistance = 500
+		bb.Parent = head
+
+		local nameLabel = Instance.new('TextLabel')
+		nameLabel.Name = 'Name'
+		nameLabel.Size = UDim2.new(1, 0, 0.6, 0)
+		nameLabel.BackgroundTransparency = 1
+		nameLabel.Text = plr.Name
+		nameLabel.TextColor3 = Color3.fromHSV(TextColor.Hue, TextColor.Sat, TextColor.Value)
+		nameLabel.TextSize = TextSize.Value
+		nameLabel.TextStrokeTransparency = 0
+		nameLabel.Font = Enum.Font.GothamBold
+		nameLabel.Parent = bb
+
+		local infoLabel = Instance.new('TextLabel')
+		infoLabel.Name = 'Info'
+		infoLabel.Size = UDim2.new(1, 0, 0.4, 0)
+		infoLabel.Position = UDim2.new(0, 0, 0.6, 0)
+		infoLabel.BackgroundTransparency = 1
+		infoLabel.Text = ''
+		infoLabel.TextColor3 = Color3.new(1, 1, 1)
+		infoLabel.TextSize = TextSize.Value - 2
+		infoLabel.TextStrokeTransparency = 0
+		infoLabel.Font = Enum.Font.Gotham
+		infoLabel.Parent = bb
+
+		nametagObjects[plr] = {bb = bb, nameLabel = nameLabel, infoLabel = infoLabel, char = char}
+	end
+
+	local function removeNametag(plr)
+		if nametagObjects[plr] then
+			pcall(function()
+				nametagObjects[plr].bb:Destroy()
+			end)
+			nametagObjects[plr] = nil
+		end
+	end
+
+	local function updateNametags()
+		for plr, data in nametagObjects do
+			if not plr or not plr.Parent or not data.char or not data.char.Parent then
+				removeNametag(plr)
+			else
+				-- Team check coloring
+				local color = Color3.fromHSV(TextColor.Hue, TextColor.Sat, TextColor.Value)
+				if TeamCheck.Enabled then
+					if isTeammate(plr) then
+						color = Color3.fromRGB(0, 255, 0)
+					elseif isEnemy(plr) then
+						color = Color3.fromRGB(255, 0, 0)
+					end
+				end
+				data.nameLabel.TextColor3 = color
+
+				-- Info text
+				local info = ''
+				if ShowDistance.Enabled and lplr.Character and lplr.Character:FindFirstChild('HumanoidRootPart') and data.char:FindFirstChild('HumanoidRootPart') then
+					local dist = (lplr.Character.HumanoidRootPart.Position - data.char.HumanoidRootPart.Position).Magnitude
+					info = math.floor(dist) .. ' studs'
+				end
+				if ShowHealth.Enabled then
+					local hum = data.char:FindFirstChildOfClass('Humanoid')
+					if hum then
+						if info ~= '' then info = info .. ' | ' end
+						info = info .. math.floor(hum.Health) .. '/' .. math.floor(hum.MaxHealth) .. ' HP'
+					end
+				end
+				data.infoLabel.Text = info
+			end
+		end
+	end
+
+	Nametags = vape.Categories.Render:CreateModule({
+		Name = 'Nametags',
+		Function = function(callback)
+			if callback then
+				-- Create nametags for existing players
+				for _, plr in playersService:GetPlayers() do
+					if plr ~= lplr then
+						createNametag(plr)
+					end
+				end
+
+				-- Listen for new players
+				Nametags:Clean(playersService.PlayerAdded:Connect(function(plr)
+					plr.CharacterAdded:Connect(function()
+						task.wait(1)
+						createNametag(plr)
+					end)
+					if plr.Character then
+						createNametag(plr)
+					end
+				end))
+
+				-- Listen for character changes
+				for _, plr in playersService:GetPlayers() do
+					if plr ~= lplr then
+						Nametags:Clean(plr.CharacterAdded:Connect(function()
+							task.wait(1)
+							removeNametag(plr)
+							createNametag(plr)
+						end))
+					end
+				end
+
+				-- Update loop
+				Nametags:Clean(runService.RenderStepped:Connect(function()
+					updateNametags()
+				end))
+			else
+				for plr in nametagObjects do
+					removeNametag(plr)
+				end
+				table.clear(nametagObjects)
+			end
+		end,
+		Tooltip = 'Shows player names and info above their heads'
+	})
+	ShowDistance = Nametags:CreateToggle({
+		Name = 'Show distance'
+	})
+	ShowHealth = Nametags:CreateToggle({
+		Name = 'Show health'
+	})
+	TeamCheck = Nametags:CreateToggle({
+		Name = 'Team check colors'
+	})
+	TextColor = Nametags:CreateColorSlider({
+		Name = 'Text color',
+		DefaultHue = 0,
+		DefaultSat = 0,
+		DefaultValue = 1
+	})
+	TextSize = Nametags:CreateSlider({
+		Name = 'Text size',
+		Min = 8,
+		Max = 24,
+		Default = 14
+	})
+end)
+
+-- ESP module
+run(function()
+	local ESP
+	local BoxColor
+	local TracerColor
+	local ShowBoxes
+	local ShowTracers
+	local ShowNames
+	local TeamCheck
+	local espObjects = {}
+
+	local function createESP(plr)
+		if plr == lplr then return end
+		if espObjects[plr] then return end
+
+		local drawings = {}
+		-- Box
+		local box = Drawing.new('Square')
+		box.Visible = false
+		box.Thickness = 1
+		box.Filled = false
+		box.Color = Color3.fromHSV(BoxColor.Hue, BoxColor.Sat, BoxColor.Value)
+		drawings.box = box
+
+		-- Tracer
+		local tracer = Drawing.new('Line')
+		tracer.Visible = false
+		tracer.Thickness = 1
+		tracer.Color = Color3.fromHSV(TracerColor.Hue, TracerColor.Sat, TracerColor.Value)
+		drawings.tracer = tracer
+
+		-- Name
+		local name = Drawing.new('Text')
+		name.Visible = false
+		name.Size = 14
+		name.Center = true
+		name.Outline = true
+		name.Color = Color3.new(1, 1, 1)
+		drawings.name = name
+
+		espObjects[plr] = {drawings = drawings, char = nil}
+	end
+
+	local function removeESP(plr)
+		if espObjects[plr] then
+			for _, d in espObjects[plr].drawings do
+				pcall(function() d:Remove() end)
+			end
+			espObjects[plr] = nil
+		end
+	end
+
+	local function updateESP()
+		for plr, data in espObjects do
+			if not plr or not plr.Parent then
+				removeESP(plr)
+			else
+				local char = plr.Character
+				if not char or not char.Parent or not char:FindFirstChild('HumanoidRootPart') then
+					for _, d in data.drawings do
+						d.Visible = false
+					end
+				else
+					data.char = char
+					local hrp = char.HumanoidRootPart
+					local head = char:FindFirstChild('Head')
+					local pos, onScreen = gameCamera:WorldToViewportPoint(hrp.Position)
+
+					-- Team check
+					local boxColor = Color3.fromHSV(BoxColor.Hue, BoxColor.Sat, BoxColor.Value)
+					local tracerColor = Color3.fromHSV(TracerColor.Hue, TracerColor.Sat, TracerColor.Value)
+					if TeamCheck.Enabled then
+						if isTeammate(plr) then
+							boxColor = Color3.fromRGB(0, 255, 0)
+							tracerColor = Color3.fromRGB(0, 255, 0)
+						elseif isEnemy(plr) then
+							boxColor = Color3.fromRGB(255, 0, 0)
+							tracerColor = Color3.fromRGB(255, 0, 0)
+						end
+					end
+
+					if onScreen then
+						-- Box
+						if ShowBoxes.Enabled then
+							local topPos = gameCamera:WorldToViewportPoint(hrp.Position + Vector3.new(0, 3, 0))
+							local bottomPos = gameCamera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
+							local height = math.abs(topPos.Y - bottomPos.Y)
+							local width = height * 0.6
+							data.drawings.box.Size = Vector2.new(width, height)
+							data.drawings.box.Position = Vector2.new(pos.X - width / 2, pos.Y - height / 2)
+							data.drawings.box.Color = boxColor
+							data.drawings.box.Visible = true
+						else
+							data.drawings.box.Visible = false
+						end
+
+						-- Tracer
+						if ShowTracers.Enabled then
+							data.drawings.tracer.From = Vector2.new(gameCamera.ViewportSize.X / 2, gameCamera.ViewportSize.Y)
+							data.drawings.tracer.To = Vector2.new(pos.X, pos.Y)
+							data.drawings.tracer.Color = tracerColor
+							data.drawings.tracer.Visible = true
+						else
+							data.drawings.tracer.Visible = false
+						end
+
+						-- Name
+						if ShowNames.Enabled then
+							data.drawings.name.Text = plr.Name
+							data.drawings.name.Position = Vector2.new(pos.X, pos.Y - 40)
+							data.drawings.name.Color = boxColor
+							data.drawings.name.Visible = true
+						else
+							data.drawings.name.Visible = false
+						end
+					else
+						for _, d in data.drawings do
+							d.Visible = false
+						end
+					end
+				end
+			end
+		end
+	end
+
+	ESP = vape.Categories.Render:CreateModule({
+		Name = 'ESP',
+		Function = function(callback)
+			if callback then
+				for _, plr in playersService:GetPlayers() do
+					if plr ~= lplr then
+						createESP(plr)
+					end
+				end
+
+				ESP:Clean(playersService.PlayerAdded:Connect(function(plr)
+					plr.CharacterAdded:Connect(function()
+						task.wait(1)
+						createESP(plr)
+					end)
+					if plr.Character then
+						createESP(plr)
+					end
+				end))
+
+				for _, plr in playersService:GetPlayers() do
+					if plr ~= lplr then
+						ESP:Clean(plr.CharacterAdded:Connect(function()
+							task.wait(1)
+							removeESP(plr)
+							createESP(plr)
+						end))
+					end
+				end
+
+				ESP:Clean(runService.RenderStepped:Connect(function()
+					updateESP()
+				end))
+			else
+				for plr in espObjects do
+					removeESP(plr)
+				end
+				table.clear(espObjects)
+			end
+		end,
+		Tooltip = 'Shows player boxes and tracers through walls'
+	})
+	ShowBoxes = ESP:CreateToggle({
+		Name = 'Boxes'
+	})
+	ShowTracers = ESP:CreateToggle({
+		Name = 'Tracers'
+	})
+	ShowNames = ESP:CreateToggle({
+		Name = 'Names'
+	})
+	TeamCheck = ESP:CreateToggle({
+		Name = 'Team check'
+	})
+	BoxColor = ESP:CreateColorSlider({
+		Name = 'Box color',
+		DefaultHue = 0,
+		DefaultSat = 1,
+		DefaultOpacity = 1
+	})
+	TracerColor = ESP:CreateColorSlider({
+		Name = 'Tracer color',
+		DefaultHue = 0.6,
+		DefaultSat = 1,
+		DefaultOpacity = 1
 	})
 end)
 
